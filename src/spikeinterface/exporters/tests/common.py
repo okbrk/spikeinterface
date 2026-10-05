@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from pathlib import Path
 
@@ -23,21 +25,14 @@ def make_sorting_analyzer(sparse=True, with_group=False):
     )
 
     if with_group:
-
-        # this is a bit painful. We need to figure out which units belong to which group
-        initial_sorting_analyzer = create_sorting_analyzer(
-            sorting=sorting, recording=recording, format="memory", sparse=True
-        )
-        main_channels = initial_sorting_analyzer.main_channel_indices
-        sorting_groups = [0 if main_channel < 4 else 1 for main_channel in main_channels]
         recording.set_channel_groups([0, 0, 0, 0, 1, 1, 1, 1])
-        sorting.set_property("group", sorting_groups)
+        sorting.set_property("group", [0, 0, 1, 1])
 
-        # Now we know that, we can make an analyzer with a working sparsity_group
         sorting_analyzer_unused = create_sorting_analyzer(
             sorting=sorting, recording=recording, format="memory", sparse=False, sparsity=None
         )
         sparsity_group = compute_sparsity(sorting_analyzer_unused, method="by_property", by_property="group")
+
         sorting_analyzer = create_sorting_analyzer(
             sorting=sorting, recording=recording, format="memory", sparse=False, sparsity=sparsity_group
         )
@@ -50,11 +45,7 @@ def make_sorting_analyzer(sparse=True, with_group=False):
     sorting_analyzer.compute("noise_levels")
     sorting_analyzer.compute("principal_components")
     sorting_analyzer.compute("template_similarity")
-    sorting_analyzer.compute("spike_amplitudes")
-    sorting_analyzer.compute(
-        "quality_metrics", metric_names=["snr", "amplitude_median", "isi_violation", "amplitude_cutoff"]
-    )
-    sorting_analyzer.compute(["spike_amplitudes", "spike_locations"])
+    sorting_analyzer.compute("quality_metrics", metric_names=["snr"])
 
     return sorting_analyzer
 

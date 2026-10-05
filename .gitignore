@@ -2,10 +2,6 @@
 
 spikeinterface/widgets/tests/mearec_test/*
 
-# for sam
-dev_*.ipynb
-dev_*.py
-
 # Vscode
 .vscode/*
 
@@ -120,7 +116,6 @@ examples/tutorials/*.svg
 
 doc/_build/*
 doc/tutorials/*
-doc/forhowto/*
 doc/sources/*
 *sg_execution_times.rst
 
@@ -145,9 +140,7 @@ examples/modules_gallery/**/*.zarr
 
 # Files and folders generated during tests
 test_folder/
-*trained_pipeline/
 
 # Mac OS
 .DS_Store
 test_data.json
-uv.lock

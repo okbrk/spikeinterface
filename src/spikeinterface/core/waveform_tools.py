@@ -9,15 +9,16 @@ It is a 2-step approach:
 
 """
 
+from __future__ import annotations
 from pathlib import Path
-import warnings
 
 import numpy as np
+import multiprocessing
 
 from spikeinterface.core.baserecording import BaseRecording
 
 from .baserecording import BaseRecording
-from .job_tools import TimeSeriesChunkExecutor, _shared_job_kwargs_doc
+from .job_tools import ChunkRecordingExecutor, _shared_job_kwargs_doc
 from .core_tools import make_shared_array
 from .job_tools import fix_job_kwargs
 
@@ -29,7 +30,7 @@ def extract_waveforms_to_buffers(
     nbefore,
     nafter,
     mode="memmap",
-    return_in_uV=True,
+    return_scaled=False,
     folder=None,
     dtype=None,
     sparsity_mask=None,
@@ -42,9 +43,9 @@ def extract_waveforms_to_buffers(
     Same as calling allocate_waveforms_buffers() and then distribute_waveforms_to_buffers().
 
     Important note: for the "shared_memory" mode arrays_info contains reference to
-    the shared memory buffer, this variable must be reference as long as arrays as used.
+    the shared memmory buffer, this variable must be reference as long as arrays as used.
     And this variable is also returned.
-    To avoid this a copy to non shared memory can be perform at the end.
+    To avoid this a copy to non shared memmory can be perform at the end.
 
     Parameters
     ----------
@@ -61,9 +62,8 @@ def extract_waveforms_to_buffers(
         N samples after spike
     mode: "memmap" | "shared_memory", default: "memmap"
         The mode to use for the buffer
-    return_in_uV : bool, default: True
-        If True and the recording has scaling (gain_to_uV and offset_to_uV properties),
-        traces are scaled to uV
+    return_scaled: bool, default: False
+        Scale traces before exporting to buffer or not
     folder: str or path or None, default: None
         In case of memmap mode, folder to save npy files
     dtype: numpy.dtype, default: None
@@ -89,7 +89,7 @@ def extract_waveforms_to_buffers(
     job_kwargs = fix_job_kwargs(job_kwargs)
 
     if dtype is None:
-        if return_in_uV:
+        if return_scaled:
             dtype = recording.get_dtype()
         else:
             dtype = "float32"
@@ -106,7 +106,7 @@ def extract_waveforms_to_buffers(
         arrays_info,
         nbefore,
         nafter,
-        return_in_uV,
+        return_scaled,
         mode=mode,
         sparsity_mask=sparsity_mask,
         **job_kwargs,
@@ -138,7 +138,7 @@ def allocate_waveforms_buffers(
     Allocate memmap or shared memory buffers before snippet extraction.
 
     Important note: for the shared memory mode arrays_info contains reference to
-    the shared memory buffer, this variable must be reference as long as arrays as used.
+    the shared memmory buffer, this variable must be reference as long as arrays as used.
 
     Parameters
     ----------
@@ -170,7 +170,7 @@ def allocate_waveforms_buffers(
         Dictionary to "construct" array in workers process (memmap file or sharemem)
     """
 
-    n_samples = nbefore + nafter
+    nsamples = nbefore + nafter
 
     dtype = np.dtype(dtype)
     if mode == "shared_memory":
@@ -187,11 +187,11 @@ def allocate_waveforms_buffers(
             num_chans = recording.get_num_channels()
         else:
             num_chans = np.sum(sparsity_mask[unit_ind, :])
-        shape = (int(n_spikes), int(n_samples), int(num_chans))
+        shape = (n_spikes, nsamples, num_chans)
 
         if mode == "memmap":
             filename = str(folder / f"waveforms_{unit_id}.npy")
-            arr = np.lib.format.open_memmap(filename, mode="w+", dtype=dtype.str, shape=shape)
+            arr = np.lib.format.open_memmap(filename, mode="w+", dtype=dtype, shape=shape)
             waveforms_by_units[unit_id] = arr
             arrays_info[unit_id] = filename
         elif mode == "shared_memory":
@@ -217,7 +217,7 @@ def distribute_waveforms_to_buffers(
     arrays_info,
     nbefore,
     nafter,
-    return_in_uV,
+    return_scaled,
     mode="memmap",
     sparsity_mask=None,
     job_name=None,
@@ -230,7 +230,7 @@ def distribute_waveforms_to_buffers(
     Buffers must be pre-allocated with the `allocate_waveforms_buffers()` function.
 
     Important note, for "shared_memory" mode arrays_info contain reference to
-    the shared memory buffer, this variable must be reference as long as arrays as used.
+    the shared memmory buffer, this variable must be reference as long as arrays as used.
 
     Parameters
     ----------
@@ -247,7 +247,7 @@ def distribute_waveforms_to_buffers(
         N samples before spike
     nafter: int
         N samples after spike
-    return_in_uV: bool
+    return_scaled: bool
         Scale traces before exporting to buffer or not.
     mode: "memmap" | "shared_memory", default: "memmap"
         Mode to use
@@ -275,14 +275,14 @@ def distribute_waveforms_to_buffers(
         arrays_info,
         nbefore,
         nafter,
-        return_in_uV,
+        return_scaled,
         inds_by_unit,
         mode,
         sparsity_mask,
     )
     if job_name is None:
         job_name = f"extract waveforms {mode} multi buffer"
-    processor = TimeSeriesChunkExecutor(
+    processor = ChunkRecordingExecutor(
         recording, func, init_func, init_args, job_name=job_name, verbose=verbose, **job_kwargs
     )
     processor.run()
@@ -291,23 +291,22 @@ def distribute_waveforms_to_buffers(
 distribute_waveforms_to_buffers.__doc__ = distribute_waveforms_to_buffers.__doc__.format(_shared_job_kwargs_doc)
 
 
-# used by TimeSeriesChunkExecutor
+# used by ChunkRecordingExecutor
 def _init_worker_distribute_buffers(
-    recording, unit_ids, spikes, arrays_info, nbefore, nafter, return_in_uV, inds_by_unit, mode, sparsity_mask
+    recording, unit_ids, spikes, arrays_info, nbefore, nafter, return_scaled, inds_by_unit, mode, sparsity_mask
 ):
     # create a local dict per worker
-    worker_dict = {}
+    worker_ctx = {}
     if isinstance(recording, dict):
-        from spikeinterface.core import load
+        from spikeinterface.core import load_extractor
 
-        recording = load(recording)
-
-    worker_dict["recording"] = recording
+        recording = load_extractor(recording)
+    worker_ctx["recording"] = recording
 
     if mode == "memmap":
         # in memmap mode we have the "too many open file" problem with linux
         # memmap file will be open on demand and not globally per worker
-        worker_dict["arrays_info"] = arrays_info
+        worker_ctx["arrays_info"] = arrays_info
     elif mode == "shared_memory":
         from multiprocessing.shared_memory import SharedMemory
 
@@ -322,33 +321,33 @@ def _init_worker_distribute_buffers(
             waveforms_by_units[unit_id] = arr
             # we need a reference to all sham otherwise we get segment fault!!!
             shms[unit_id] = shm
-        worker_dict["shms"] = shms
-        worker_dict["waveforms_by_units"] = waveforms_by_units
+        worker_ctx["shms"] = shms
+        worker_ctx["waveforms_by_units"] = waveforms_by_units
 
-    worker_dict["unit_ids"] = unit_ids
-    worker_dict["spikes"] = spikes
+    worker_ctx["unit_ids"] = unit_ids
+    worker_ctx["spikes"] = spikes
 
-    worker_dict["nbefore"] = nbefore
-    worker_dict["nafter"] = nafter
-    worker_dict["return_in_uV"] = return_in_uV
-    worker_dict["inds_by_unit"] = inds_by_unit
-    worker_dict["sparsity_mask"] = sparsity_mask
-    worker_dict["mode"] = mode
+    worker_ctx["nbefore"] = nbefore
+    worker_ctx["nafter"] = nafter
+    worker_ctx["return_scaled"] = return_scaled
+    worker_ctx["inds_by_unit"] = inds_by_unit
+    worker_ctx["sparsity_mask"] = sparsity_mask
+    worker_ctx["mode"] = mode
 
-    return worker_dict
+    return worker_ctx
 
 
-# used by TimeSeriesChunkExecutor
-def _worker_distribute_buffers(segment_index, start_frame, end_frame, worker_dict):
+# used by ChunkRecordingExecutor
+def _worker_distribute_buffers(segment_index, start_frame, end_frame, worker_ctx):
     # recover variables of the worker
-    recording = worker_dict["recording"]
-    unit_ids = worker_dict["unit_ids"]
-    spikes = worker_dict["spikes"]
-    nbefore = worker_dict["nbefore"]
-    nafter = worker_dict["nafter"]
-    return_in_uV = worker_dict["return_in_uV"]
-    inds_by_unit = worker_dict["inds_by_unit"]
-    sparsity_mask = worker_dict["sparsity_mask"]
+    recording = worker_ctx["recording"]
+    unit_ids = worker_ctx["unit_ids"]
+    spikes = worker_ctx["spikes"]
+    nbefore = worker_ctx["nbefore"]
+    nafter = worker_ctx["nafter"]
+    return_scaled = worker_ctx["return_scaled"]
+    inds_by_unit = worker_ctx["inds_by_unit"]
+    sparsity_mask = worker_ctx["sparsity_mask"]
 
     seg_size = recording.get_num_samples(segment_index=segment_index)
 
@@ -369,18 +368,13 @@ def _worker_distribute_buffers(segment_index, start_frame, end_frame, worker_dic
     l1 = i1 + s0
 
     if l1 > l0:
-
-        sub_spikes = in_seg_spikes[i0:i1]
-        start = sub_spikes[0]["sample_index"] - nbefore
-        end = sub_spikes[-1]["sample_index"] + nafter
+        start = spikes[l0]["sample_index"] - nbefore
+        end = spikes[l1 - 1]["sample_index"] + nafter
 
         # load trace in memory
         traces = recording.get_traces(
-            start_frame=start, end_frame=end, segment_index=segment_index, return_in_uV=return_in_uV
+            start_frame=start, end_frame=end, segment_index=segment_index, return_scaled=return_scaled
         )
-
-        onset = start + nbefore
-        offset = nbefore + nafter
 
         for unit_ind, unit_id in enumerate(unit_ids):
             # find pos
@@ -389,16 +383,16 @@ def _worker_distribute_buffers(segment_index, start_frame, end_frame, worker_dic
             if in_chunk_pos.size == 0:
                 continue
 
-            if worker_dict["mode"] == "memmap":
+            if worker_ctx["mode"] == "memmap":
                 # open file in demand (and also autoclose it after)
-                filename = worker_dict["arrays_info"][unit_id]
+                filename = worker_ctx["arrays_info"][unit_id]
                 wfs = np.load(str(filename), mmap_mode="r+")
-            elif worker_dict["mode"] == "shared_memory":
-                wfs = worker_dict["waveforms_by_units"][unit_id]
+            elif worker_ctx["mode"] == "shared_memory":
+                wfs = worker_ctx["waveforms_by_units"][unit_id]
 
             for pos in in_chunk_pos:
-                sample_index = spikes["sample_index"][inds[pos]] - onset
-                wf = traces[sample_index : sample_index + offset, :]
+                sample_index = spikes[inds[pos]]["sample_index"]
+                wf = traces[sample_index - start - nbefore : sample_index - start + nafter, :]
 
                 if sparsity_mask is None:
                     wfs[pos, :, :] = wf
@@ -413,7 +407,7 @@ def extract_waveforms_to_single_buffer(
     nbefore,
     nafter,
     mode="memmap",
-    return_in_uV=True,
+    return_scaled=False,
     file_path=None,
     dtype=None,
     sparsity_mask=None,
@@ -433,9 +427,9 @@ def extract_waveforms_to_single_buffer(
     This ensures that spikes.shape[0] == all_waveforms.shape[0].
 
     Important note: for the "shared_memory" mode wf_array_info contains reference to
-    the shared memory buffer, this variable must be referenced as long as arrays is used.
+    the shared memmory buffer, this variable must be referenced as long as arrays is used.
     This variable must also unlink() when the array is de-referenced.
-    To avoid this complicated behavior, default: (copy=True) the shared memory buffer is copied into a standard
+    To avoid this complicated behavior, default: (copy=True) the shared memmory buffer is copied into a standard
     numpy array.
 
 
@@ -454,9 +448,8 @@ def extract_waveforms_to_single_buffer(
         N samples after spike
     mode: "memmap" | "shared_memory", default: "memmap"
         The mode to use for the buffer
-    return_in_uV : bool, default: False
-        If True and the recording has scaling (gain_to_uV and offset_to_uV properties),
-        traces are scaled to uV
+    return_scaled: bool, default: False
+        Scale traces before exporting to buffer or not
     file_path: str or path or None, default: None
         In case of memmap mode, file to save npy file
     dtype: numpy.dtype, default: None
@@ -482,13 +475,9 @@ def extract_waveforms_to_single_buffer(
         Optionally return in case of shared_memory if copy=False.
         Dictionary to "construct" array in workers process (memmap file or sharemem info)
     """
-    n_samples = nbefore + nafter
+    nsamples = nbefore + nafter
 
-    if dtype is None:
-        dtype = recording.get_dtype()
-    else:
-        dtype = np.dtype(dtype)
-
+    dtype = np.dtype(dtype)
     if mode == "shared_memory":
         assert file_path is None
     else:
@@ -498,9 +487,8 @@ def extract_waveforms_to_single_buffer(
     if sparsity_mask is None:
         num_chans = recording.get_num_channels()
     else:
-        # `initial` keeps this working for a sorting with no unit, where the mask has no row
-        num_chans = int(np.max(np.sum(sparsity_mask, axis=1), initial=0))  # This is a numpy scalar, so we cast to int
-    shape = (int(num_spikes), int(n_samples), int(num_chans))
+        num_chans = int(max(np.sum(sparsity_mask, axis=1)))  # This is a numpy scalar, so we cast to int
+    shape = (num_spikes, nsamples, num_chans)
 
     if mode == "memmap":
         all_waveforms = np.lib.format.open_memmap(file_path, mode="w+", dtype=dtype, shape=shape)
@@ -521,7 +509,7 @@ def extract_waveforms_to_single_buffer(
 
     job_kwargs = fix_job_kwargs(job_kwargs)
 
-    if num_spikes > 0 and num_chans > 0:
+    if num_spikes > 0:
         # and run
         func = _worker_distribute_single_buffer
         init_func = _init_worker_distribute_single_buffer
@@ -532,14 +520,14 @@ def extract_waveforms_to_single_buffer(
             wf_array_info,
             nbefore,
             nafter,
-            return_in_uV,
+            return_scaled,
             mode,
             sparsity_mask,
         )
         if job_name is None:
             job_name = f"extract waveforms {mode} mono buffer"
 
-        processor = TimeSeriesChunkExecutor(
+        processor = ChunkRecordingExecutor(
             recording, func, init_func, init_args, job_name=job_name, verbose=verbose, **job_kwargs
         )
         processor.run()
@@ -548,65 +536,62 @@ def extract_waveforms_to_single_buffer(
         return all_waveforms
     elif mode == "shared_memory":
         if copy:
-            wf_out = all_waveforms.copy()
-            del all_waveforms
             if shm is not None:
                 # release all sharedmem buffer
                 # empty array have None
-                shm.close()
                 shm.unlink()
-            return wf_out
+            return all_waveforms.copy()
         else:
             return all_waveforms, wf_array_info
 
 
 def _init_worker_distribute_single_buffer(
-    recording, spikes, wf_array_info, nbefore, nafter, return_in_uV, mode, sparsity_mask
+    recording, spikes, wf_array_info, nbefore, nafter, return_scaled, mode, sparsity_mask
 ):
-    worker_dict = {}
-    worker_dict["recording"] = recording
-    worker_dict["wf_array_info"] = wf_array_info
-    worker_dict["spikes"] = spikes
-    worker_dict["nbefore"] = nbefore
-    worker_dict["nafter"] = nafter
-    worker_dict["return_in_uV"] = return_in_uV
-    worker_dict["sparsity_mask"] = sparsity_mask
-    worker_dict["mode"] = mode
+    worker_ctx = {}
+    worker_ctx["recording"] = recording
+    worker_ctx["wf_array_info"] = wf_array_info
+    worker_ctx["spikes"] = spikes
+    worker_ctx["nbefore"] = nbefore
+    worker_ctx["nafter"] = nafter
+    worker_ctx["return_scaled"] = return_scaled
+    worker_ctx["sparsity_mask"] = sparsity_mask
+    worker_ctx["mode"] = mode
 
     if mode == "memmap":
         filename = wf_array_info["filename"]
         all_waveforms = np.load(str(filename), mmap_mode="r+")
-        worker_dict["all_waveforms"] = all_waveforms
+        worker_ctx["all_waveforms"] = all_waveforms
     elif mode == "shared_memory":
         from multiprocessing.shared_memory import SharedMemory
 
         shm_name, dtype, shape = wf_array_info["shm_name"], wf_array_info["dtype"], wf_array_info["shape"]
         shm = SharedMemory(shm_name)
         all_waveforms = np.ndarray(shape=shape, dtype=dtype, buffer=shm.buf)
-        worker_dict["shm"] = shm
-        worker_dict["all_waveforms"] = all_waveforms
+        worker_ctx["shm"] = shm
+        worker_ctx["all_waveforms"] = all_waveforms
 
     # prepare segment slices
     segment_slices = []
     for segment_index in range(recording.get_num_segments()):
         s0, s1 = np.searchsorted(spikes["segment_index"], [segment_index, segment_index + 1])
         segment_slices.append((s0, s1))
-    worker_dict["segment_slices"] = segment_slices
+    worker_ctx["segment_slices"] = segment_slices
 
-    return worker_dict
+    return worker_ctx
 
 
-# used by TimeSeriesChunkExecutor
-def _worker_distribute_single_buffer(segment_index, start_frame, end_frame, worker_dict):
+# used by ChunkRecordingExecutor
+def _worker_distribute_single_buffer(segment_index, start_frame, end_frame, worker_ctx):
     # recover variables of the worker
-    recording = worker_dict["recording"]
-    segment_slices = worker_dict["segment_slices"]
-    spikes = worker_dict["spikes"]
-    nbefore = worker_dict["nbefore"]
-    nafter = worker_dict["nafter"]
-    return_in_uV = worker_dict["return_in_uV"]
-    sparsity_mask = worker_dict["sparsity_mask"]
-    all_waveforms = worker_dict["all_waveforms"]
+    recording = worker_ctx["recording"]
+    segment_slices = worker_ctx["segment_slices"]
+    spikes = worker_ctx["spikes"]
+    nbefore = worker_ctx["nbefore"]
+    nafter = worker_ctx["nafter"]
+    return_scaled = worker_ctx["return_scaled"]
+    sparsity_mask = worker_ctx["sparsity_mask"]
+    all_waveforms = worker_ctx["all_waveforms"]
 
     seg_size = recording.get_num_samples(segment_index=segment_index)
 
@@ -620,24 +605,23 @@ def _worker_distribute_single_buffer(segment_index, start_frame, end_frame, work
         in_seg_spikes["sample_index"], [max(start_frame, nbefore), min(end_frame, seg_size - nafter)]
     )
 
-    if i1 > i0:
-        sub_spikes = in_seg_spikes[i0:i1]
-        start = sub_spikes[0]["sample_index"] - nbefore
-        end = sub_spikes[-1]["sample_index"] + nafter
+    # slice in absolut in spikes vector
+    l0 = i0 + s0
+    l1 = i1 + s0
+
+    if l1 > l0:
+        start = spikes[l0]["sample_index"] - nbefore
+        end = spikes[l1 - 1]["sample_index"] + nafter
 
         # load trace in memory
         traces = recording.get_traces(
-            start_frame=start, end_frame=end, segment_index=segment_index, return_in_uV=return_in_uV
+            start_frame=start, end_frame=end, segment_index=segment_index, return_scaled=return_scaled
         )
 
-        onset = start + nbefore
-        offset = nbefore + nafter
-        sample_indices = sub_spikes["sample_index"] - onset
-        unit_indices = sub_spikes["unit_index"]
-        spike_indices = s0 + np.arange(i0, i1)
-
-        for sample_index, unit_index, spike_index in zip(sample_indices, unit_indices, spike_indices):
-            wf = traces[sample_index : sample_index + offset, :]
+        for spike_index in range(l0, l1):
+            sample_index = spikes[spike_index]["sample_index"]
+            unit_index = spikes[spike_index]["unit_index"]
+            wf = traces[sample_index - start - nbefore : sample_index - start + nafter, :]
 
             if sparsity_mask is None:
                 all_waveforms[spike_index, :, :] = wf
@@ -646,7 +630,7 @@ def _worker_distribute_single_buffer(segment_index, start_frame, end_frame, work
                 wf = wf[:, mask]
                 all_waveforms[spike_index, :, : wf.shape[1]] = wf
 
-        if worker_dict["mode"] == "memmap":
+        if worker_ctx["mode"] == "memmap":
             all_waveforms.flush()
 
 
@@ -730,14 +714,13 @@ def estimate_templates(
     nbefore: int,
     nafter: int,
     operator: str = "average",
-    return_in_uV=True,
-    sparsity_mask=None,
+    return_scaled: bool = True,
     job_name=None,
     **job_kwargs,
 ):
     """
     Estimate dense templates with "average" or "median".
-    If "average" internally estimate_templates_with_accumulator() is used to saved memory.
+    If "average" internally estimate_templates_with_accumulator() is used to saved memory/
 
     Parameters
     ----------
@@ -747,17 +730,14 @@ def estimate_templates(
     spikes: 1d numpy array with several fields
         Spikes handled as a unique vector.
         This vector can be obtained with: `spikes = sorting.to_spike_vector()`
-    unit_ids: list or numpy.ndarray
+    unit_ids: list ot numpy
         List of unit_ids
     nbefore: int
         Number of samples to cut out before a spike
     nafter: int
         Number of samples to cut out after a spike
-    return_in_uV : bool, default: True
-        If True and the recording has scaling (gain_to_uV and offset_to_uV properties),
-        traces are scaled to uV
-    sparsity_mask: None or array of bool, default: None
-        If not None shape must be must be (len(unit_ids), len(channel_ids))
+    return_scaled: bool, default: True
+        If True, the traces are scaled before averaging
 
     Returns
     -------
@@ -765,20 +745,13 @@ def estimate_templates(
         The average templates with shape (num_units, nbefore + nafter, num_channels)
 
     """
+
     if job_name is None:
         job_name = "estimate_templates"
 
     if operator == "average":
         templates_array = estimate_templates_with_accumulator(
-            recording,
-            spikes,
-            unit_ids,
-            nbefore,
-            nafter,
-            return_in_uV=return_in_uV,
-            sparsity_mask=sparsity_mask,
-            job_name=job_name,
-            **job_kwargs,
+            recording, spikes, unit_ids, nbefore, nafter, return_scaled=return_scaled, job_name=job_name, **job_kwargs
         )
     elif operator == "median":
         all_waveforms, wf_array_info = extract_waveforms_to_single_buffer(
@@ -788,9 +761,7 @@ def estimate_templates(
             nbefore,
             nafter,
             mode="shared_memory",
-            return_in_uV=return_in_uV,
-            dtype="float32",
-            sparsity_mask=sparsity_mask,
+            return_scaled=return_scaled,
             copy=False,
             **job_kwargs,
         )
@@ -801,8 +772,6 @@ def estimate_templates(
             wfs = all_waveforms[spikes["unit_index"] == unit_index]
             templates_array[unit_index, :, :] = np.median(wfs, axis=0)
         # release shared memory after the median
-        del all_waveforms
-        wf_array_info["shm"].close()
         wf_array_info["shm"].unlink()
 
     else:
@@ -817,13 +786,12 @@ def estimate_templates_with_accumulator(
     unit_ids: list | np.ndarray,
     nbefore: int,
     nafter: int,
-    return_in_uV=True,
-    sparsity_mask=None,
+    return_scaled: bool = True,
     job_name=None,
     return_std: bool = False,
     verbose: bool = False,
     **job_kwargs,
-) -> np.ndarray:
+):
     """
     This is a fast implementation to compute template averages and standard deviations.
     This is useful to estimate sparsity without the need to allocate large waveform buffers.
@@ -845,11 +813,8 @@ def estimate_templates_with_accumulator(
         Number of samples to cut out before a spike
     nafter: int
         Number of samples to cut out after a spike
-    return_in_uV : bool, default: True
-        If True and the recording has scaling (gain_to_uV and offset_to_uV properties),
-        traces are scaled to uV
-    sparsity_mask: None or array of bool, default: None
-        If not None shape must be must be (len(unit_ids), len(channel_ids))
+    return_scaled: bool, default: True
+        If True, the traces are scaled before averaging
     return_std: bool, default: False
         If True, the standard deviation is also computed.
 
@@ -858,26 +823,16 @@ def estimate_templates_with_accumulator(
     templates_array: np.array
         The average templates with shape (num_units, nbefore + nafter, num_channels)
     """
+
+    assert spikes.size > 0, "estimate_templates() need non empty sorting"
+
     job_kwargs = fix_job_kwargs(job_kwargs)
     num_worker = job_kwargs["n_jobs"]
 
-    if sparsity_mask is None:
-        num_chans = int(recording.get_num_channels())
-    else:
-        # `initial` keeps this working for a sorting with no unit, where the mask has no row
-        num_chans = int(np.max(np.sum(sparsity_mask, axis=1), initial=0))  # This is a numpy scalar, so we cast to int
+    num_chans = recording.get_num_channels()
     num_units = len(unit_ids)
 
-    if spikes.size == 0:
-        # A sorting with no unit (or with only empty units) is valid, there is simply nothing to
-        # accumulate. Returning zeros avoids allocating an empty shared memory buffer.
-        template_means = np.zeros((num_units, nbefore + nafter, num_chans), dtype="float32")
-        if return_std:
-            return template_means, np.zeros_like(template_means)
-        return template_means
-
     shape = (num_worker, num_units, nbefore + nafter, num_chans)
-
     dtype = np.dtype("float32")
     waveform_accumulator_per_worker, shm = make_shared_array(shape, dtype)
     shm_name = shm.name
@@ -887,6 +842,12 @@ def estimate_templates_with_accumulator(
     else:
         waveform_squared_accumulator_per_worker = None
         shm_squared_name = None
+
+    # trick to get the work_index given pid arrays
+    lock = multiprocessing.Lock()
+    array_pid = multiprocessing.Array("i", num_worker)
+    for i in range(num_worker):
+        array_pid[i] = -1
 
     func = _worker_estimate_templates
     init_func = _init_worker_estimate_templates
@@ -900,14 +861,15 @@ def estimate_templates_with_accumulator(
         dtype,
         nbefore,
         nafter,
-        return_in_uV,
-        sparsity_mask,
+        return_scaled,
+        lock,
+        array_pid,
     )
 
     if job_name is None:
         job_name = "estimate_templates_with_accumulator"
-    processor = TimeSeriesChunkExecutor(
-        recording, func, init_func, init_args, job_name=job_name, verbose=verbose, need_worker_index=True, **job_kwargs
+    processor = ChunkRecordingExecutor(
+        recording, func, init_func, init_args, job_name=job_name, verbose=verbose, **job_kwargs
     )
     processor.run()
 
@@ -957,17 +919,16 @@ def _init_worker_estimate_templates(
     dtype,
     nbefore,
     nafter,
-    return_in_uV,
-    sparsity_mask,
-    worker_index,
+    return_scaled,
+    lock,
+    array_pid,
 ):
-    worker_dict = {}
-    worker_dict["recording"] = recording
-    worker_dict["spikes"] = spikes
-    worker_dict["nbefore"] = nbefore
-    worker_dict["nafter"] = nafter
-    worker_dict["return_in_uV"] = return_in_uV
-    worker_dict["sparsity_mask"] = sparsity_mask
+    worker_ctx = {}
+    worker_ctx["recording"] = recording
+    worker_ctx["spikes"] = spikes
+    worker_ctx["nbefore"] = nbefore
+    worker_ctx["nafter"] = nafter
+    worker_ctx["return_scaled"] = return_scaled
 
     from multiprocessing.shared_memory import SharedMemory
     import multiprocessing
@@ -975,37 +936,48 @@ def _init_worker_estimate_templates(
     shm = SharedMemory(shm_name)
     waveform_accumulator_per_worker = np.ndarray(shape=shape, dtype=dtype, buffer=shm.buf)
 
-    worker_dict["shm"] = shm
-    worker_dict["waveform_accumulator_per_worker"] = waveform_accumulator_per_worker
+    worker_ctx["shm"] = shm
+    worker_ctx["waveform_accumulator_per_worker"] = waveform_accumulator_per_worker
     if shm_squared_name is not None:
         shm_squared = SharedMemory(shm_squared_name)
         waveform_squared_accumulator_per_worker = np.ndarray(shape=shape, dtype=dtype, buffer=shm_squared.buf)
-        worker_dict["shm_squared"] = shm_squared
-        worker_dict["waveform_squared_accumulator_per_worker"] = waveform_squared_accumulator_per_worker
+        worker_ctx["shm_squared"] = shm_squared
+        worker_ctx["waveform_squared_accumulator_per_worker"] = waveform_squared_accumulator_per_worker
 
     # prepare segment slices
     segment_slices = []
     for segment_index in range(recording.get_num_segments()):
         s0, s1 = np.searchsorted(spikes["segment_index"], [segment_index, segment_index + 1])
         segment_slices.append((s0, s1))
-    worker_dict["segment_slices"] = segment_slices
+    worker_ctx["segment_slices"] = segment_slices
 
-    return worker_dict
+    child_process = multiprocessing.current_process()
+
+    lock.acquire()
+    num_worker = None
+    for i in range(len(array_pid)):
+        if array_pid[i] == -1:
+            num_worker = i
+            array_pid[i] = child_process.ident
+            break
+    worker_ctx["worker_index"] = num_worker
+    lock.release()
+
+    return worker_ctx
 
 
-# used by TimeSeriesChunkExecutor
-def _worker_estimate_templates(segment_index, start_frame, end_frame, worker_dict):
+# used by ChunkRecordingExecutor
+def _worker_estimate_templates(segment_index, start_frame, end_frame, worker_ctx):
     # recover variables of the worker
-    recording = worker_dict["recording"]
-    segment_slices = worker_dict["segment_slices"]
-    spikes = worker_dict["spikes"]
-    nbefore = worker_dict["nbefore"]
-    nafter = worker_dict["nafter"]
-    waveform_accumulator_per_worker = worker_dict["waveform_accumulator_per_worker"]
-    waveform_squared_accumulator_per_worker = worker_dict.get("waveform_squared_accumulator_per_worker", None)
-    worker_index = worker_dict["worker_index"]
-    return_in_uV = worker_dict["return_in_uV"]
-    sparsity_mask = worker_dict["sparsity_mask"]
+    recording = worker_ctx["recording"]
+    segment_slices = worker_ctx["segment_slices"]
+    spikes = worker_ctx["spikes"]
+    nbefore = worker_ctx["nbefore"]
+    nafter = worker_ctx["nafter"]
+    waveform_accumulator_per_worker = worker_ctx["waveform_accumulator_per_worker"]
+    waveform_squared_accumulator_per_worker = worker_ctx.get("waveform_squared_accumulator_per_worker", None)
+    worker_index = worker_ctx["worker_index"]
+    return_scaled = worker_ctx["return_scaled"]
 
     seg_size = recording.get_num_samples(segment_index=segment_index)
 
@@ -1019,34 +991,24 @@ def _worker_estimate_templates(segment_index, start_frame, end_frame, worker_dic
         in_seg_spikes["sample_index"], [max(start_frame, nbefore), min(end_frame, seg_size - nafter)]
     )
 
-    if i1 > i0:
-        sub_spikes = in_seg_spikes[i0:i1]
+    # slice in absolut in spikes vector
+    l0 = i0 + s0
+    l1 = i1 + s0
 
-        start = sub_spikes[0]["sample_index"] - nbefore
-        end = sub_spikes[-1]["sample_index"] + nafter
+    if l1 > l0:
+        start = spikes[l0]["sample_index"] - nbefore
+        end = spikes[l1 - 1]["sample_index"] + nafter
 
         # load trace in memory
         traces = recording.get_traces(
-            start_frame=start, end_frame=end, segment_index=segment_index, return_in_uV=return_in_uV
+            start_frame=start, end_frame=end, segment_index=segment_index, return_scaled=return_scaled
         )
 
-        onset = start + nbefore
-        offset = nbefore + nafter
-        sample_indices = sub_spikes["sample_index"] - onset
-        unit_indices = sub_spikes["unit_index"]
+        for spike_index in range(l0, l1):
+            sample_index = spikes[spike_index]["sample_index"]
+            unit_index = spikes[spike_index]["unit_index"]
+            wf = traces[sample_index - start - nbefore : sample_index - start + nafter, :]
 
-        for sample_index, unit_index in zip(sample_indices, unit_indices):
-
-            wf = traces[sample_index : sample_index + offset, :]
-
-            if sparsity_mask is None:
-                waveform_accumulator_per_worker[worker_index, unit_index, :, :] += wf
-                if waveform_squared_accumulator_per_worker is not None:
-                    waveform_squared_accumulator_per_worker[worker_index, unit_index, :, :] += wf**2
-
-            else:
-                mask = sparsity_mask[unit_index, :]
-                wf = wf[:, mask]
-                waveform_accumulator_per_worker[worker_index, unit_index, :, : wf.shape[1]] += wf
-                if waveform_squared_accumulator_per_worker is not None:
-                    waveform_squared_accumulator_per_worker[worker_index, unit_index, :, : wf.shape[1]] += wf**2
+            waveform_accumulator_per_worker[worker_index, unit_index, :, :] += wf
+            if waveform_squared_accumulator_per_worker is not None:
+                waveform_squared_accumulator_per_worker[worker_index, unit_index, :, :] += wf**2

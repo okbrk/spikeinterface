@@ -1,6 +1,10 @@
-import pytest
+import shutil
+from pathlib import Path
 
-# from spikeinterface.extractors import read_klusta
+import pytest
+import numpy as np
+
+from spikeinterface.extractors import *
 
 
 @pytest.mark.skip("Klusta can be tested after running run_klusta()")
@@ -9,7 +13,7 @@ def test_klustaextractors():
     pass
 
     #  klusta_folder = '/home/samuel/Documents/SpikeInterface/spikeinterface/spikeinterface/sorters/tests/klusta_output/'
-    #  sorting = read_klusta(klusta_folder)
+    #  sorting = KlustaSortingExtractor(klusta_folder)
     #  print(sorting)
 
 

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import numpy as np
 
-from spikeinterface.core.core_tools import define_function_handling_dict_from_class
+from ..core.core_tools import define_function_from_class
 from .basepreprocessor import BasePreprocessor, BasePreprocessorSegment
 
 
@@ -31,13 +33,12 @@ class UnsignedToSignedRecording(BasePreprocessor):
 
         BasePreprocessor.__init__(self, recording, dtype=dtype_signed)
 
-        for parent_segment in recording.segments:
+        for parent_segment in recording._recording_segments:
             rec_segment = UnsignedToSignedRecordingSegment(parent_segment, dtype_signed, bit_depth)
             self.add_recording_segment(rec_segment)
 
         self._kwargs = dict(
             recording=recording,
-            bit_depth=bit_depth,
         )
 
 
@@ -65,6 +66,4 @@ class UnsignedToSignedRecordingSegment(BasePreprocessorSegment):
 
 
 # function for API
-unsigned_to_signed = define_function_handling_dict_from_class(
-    source_class=UnsignedToSignedRecording, name="unsigned_to_signed"
-)
+unsigned_to_signed = define_function_from_class(source_class=UnsignedToSignedRecording, name="unsigned_to_signed")

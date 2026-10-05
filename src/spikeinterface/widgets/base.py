@@ -1,14 +1,18 @@
+from __future__ import annotations
+
+import inspect
+
 global default_backend_
 default_backend_ = "matplotlib"
 
-from spikeinterface.core import SortingAnalyzer, BaseSorting
-from spikeinterface.core.waveforms_extractor_backwards_compatibility import MockWaveformExtractor
+from ..core import SortingAnalyzer, BaseSorting
+from ..core.waveforms_extractor_backwards_compatibility import MockWaveformExtractor
 
 
 def get_default_plotter_backend():
     """Return the default backend for spikeinterface widgets.
     The default backend is "matplotlib" at init.
-    It can be globally set with `set_default_plotter_backend(backend)`
+    It can be be globally set with `set_default_plotter_backend(backend)`
     """
 
     global default_backend_
@@ -29,12 +33,11 @@ backend_kwargs_desc = {
         "figsize": "Size of matplotlib figure, default: None",
         "figtitle": "The figure title, default: None",
     },
-    "figpack": {
+    "sortingview": {
+        "generate_url": "If True, the figurl URL is generated and printed, default: True",
         "display": "If True and in jupyter notebook/lab, the widget is displayed in the cell, default: True.",
         "figlabel": "The figurl figure label, default: None",
-        "inline": "If True, the widget is displayed inline in the cell, default: None",
-        "height": "The height of the figpack View in jupyter, default: None",
-        "wait_for_input": "If True, the widget waits for user input before continuing, default: False",
+        "height": "The height of the sortingview View in jupyter, default: None",
     },
     "ipywidgets": {
         "width_cm": "Width of the figure in cm, default: 10",
@@ -44,23 +47,14 @@ backend_kwargs_desc = {
     },
     "ephyviewer": {},
     "spikeinterface_gui": {},
-    # deprecated
-    "sortingview": {
-        "generate_url": "If True, the figurl URL is generated and printed, default: True",
-        "display": "If True and in jupyter notebook/lab, the widget is displayed in the cell, default: True.",
-        "figlabel": "The figurl figure label, default: None",
-        "height": "The height of the sortingview View in jupyter, default: None",
-    },
 }
 
 default_backend_kwargs = {
     "matplotlib": {"figure": None, "ax": None, "axes": None, "ncols": 5, "figsize": None, "figtitle": None},
-    "figpack": {"display": True, "figlabel": None, "inline": None, "height": None, "wait_for_input": False},
+    "sortingview": {"generate_url": True, "display": True, "figlabel": None, "height": None},
     "ipywidgets": {"width_cm": 25, "height_cm": 10, "display": True, "controllers": None},
     "ephyviewer": {},
     "spikeinterface_gui": {},
-    # deprecated
-    "sortingview": {"generate_url": True, "display": True, "figlabel": None, "height": None},
 }
 
 

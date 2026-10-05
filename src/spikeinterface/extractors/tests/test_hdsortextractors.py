@@ -1,6 +1,10 @@
-import pytest
+import shutil
+from pathlib import Path
 
-# from spikeinterface.extractors import read_hdsort
+import pytest
+import numpy as np
+
+from spikeinterface.extractors import *
 
 
 @pytest.mark.skip("HDSort can be tested after running run_hdsort()")

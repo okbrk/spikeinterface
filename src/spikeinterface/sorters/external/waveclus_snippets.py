@@ -1,17 +1,23 @@
+from __future__ import annotations
+
 from pathlib import Path
 import os
+from typing import Union
 import shutil
 import sys
 import json
 
-from spikeinterface.sorters.basesorter import BaseSorter
-from spikeinterface.sorters.utils import ShellScript
 
-from spikeinterface.extractors.extractor_classes import WaveClusSortingExtractor
-from spikeinterface.extractors.extractor_classes import WaveClusSnippetsExtractor
+from ..basesorter import BaseSorter
+from ..utils import ShellScript
+
+from spikeinterface.extractors import WaveClusSortingExtractor
+from spikeinterface.extractors import WaveClusSnippetsExtractor
+
+PathType = Union[str, Path]
 
 
-def check_if_installed(waveclus_path: str | None):
+def check_if_installed(waveclus_path: Union[str, None]):
     if waveclus_path is None:
         return False
     assert isinstance(waveclus_path, str)
@@ -31,7 +37,7 @@ class WaveClusSnippetsSorter(BaseSorter):
 
     sorter_name: str = "waveclus_snippets"
     compiled_name: str = "waveclus_snippets_compiled"
-    waveclus_path: str | None = os.getenv("WAVECLUS_PATH", None)
+    waveclus_path: Union[str, None] = os.getenv("WAVECLUS_PATH", None)
     requires_locations = False
 
     _default_params = {
@@ -88,12 +94,12 @@ class WaveClusSnippetsSorter(BaseSorter):
         if p is None:
             return "unknown"
         else:
-            with open(str(Path(p) / "version.txt"), encoding="utf8") as f:
+            with open(str(Path(p) / "version.txt"), mode="r", encoding="utf8") as f:
                 version = f.readline()
         return version
 
     @classmethod
-    def set_waveclus_path(cls, waveclus_path: str | Path):
+    def set_waveclus_path(cls, waveclus_path: PathType):
         waveclus_path = str(Path(waveclus_path).absolute())
         WaveClusSnippetsSorter.waveclus_path = waveclus_path
         try:
@@ -115,7 +121,7 @@ class WaveClusSnippetsSorter(BaseSorter):
         if verbose:
             num_snippets = snippets.get_total_snippets()
             num_channels = snippets.get_num_channels()
-            print(f"Num. channels = {num_channels}, Num. snippets = {num_snippets}")
+            print("Num. channels = {}, Num. snippets = {}".format(num_channels, num_snippets))
 
     @classmethod
     def _run_from_folder(cls, sorter_output_folder, params, verbose):
@@ -200,7 +206,7 @@ class WaveClusSnippetsSorter(BaseSorter):
         par_input = {}
         for key, value in p.items():
             if type(value) == bool:
-                value = f"{value}".lower()
+                value = "{}".format(value).lower()
             if key in par_renames:
                 key = par_renames[key]
             par_input[key] = value

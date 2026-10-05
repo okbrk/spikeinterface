@@ -1,4 +1,4 @@
-Visualize data
+Visualize Data
 ==============
 
 There are several ways to plot signals (raw, preprocessed) and spikes.

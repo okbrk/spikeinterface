@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import numpy as np
 
-from spikeinterface.core.core_tools import define_function_handling_dict_from_class
+from spikeinterface.core.core_tools import define_function_from_class
 
-from spikeinterface.core import get_chunk_with_margin
+from ..core import get_chunk_with_margin
 
 from .basepreprocessor import BasePreprocessor, BasePreprocessorSegment
 
@@ -61,7 +63,7 @@ class PhaseShiftRecording(BasePreprocessor):
             tmp_dtype = None
 
         BasePreprocessor.__init__(self, recording, dtype=dtype)
-        for parent_segment in recording.segments:
+        for parent_segment in recording._recording_segments:
             rec_segment = PhaseShiftRecordingSegment(parent_segment, sample_shifts, margin, dtype, tmp_dtype)
             self.add_recording_segment(rec_segment)
 
@@ -106,7 +108,7 @@ class PhaseShiftRecordingSegment(BasePreprocessorSegment):
 
 
 # function for API
-phase_shift = define_function_handling_dict_from_class(source_class=PhaseShiftRecording, name="phase_shift")
+phase_shift = define_function_from_class(source_class=PhaseShiftRecording, name="phase_shift")
 
 
 def apply_frequency_shift(signal, shift_samples, axis=0):
@@ -142,13 +144,13 @@ def apply_frequency_shift(signal, shift_samples, axis=0):
     This method leverages the properties of the Fourier transform, where a phase shift in the frequency domain
     corresponds to a time shift in the time domain.
     """
-    from scipy.fft import rfft, irfft
+    import scipy.fft
 
     signal_length = signal.shape[axis]
     num_channels = shift_samples.size
     fourier_signal_size = signal_length // 2 + 1
 
-    frequency_domain_signal = rfft(signal, n=signal_length, axis=axis, overwrite_x=True)
+    frequency_domain_signal = scipy.fft.rfft(signal, n=signal_length, axis=axis, overwrite_x=True)
     fourier_signal_size = frequency_domain_signal.shape[0]
 
     if axis == 0:
@@ -164,7 +166,7 @@ def apply_frequency_shift(signal, shift_samples, axis=0):
     phase_shifted_signal = np.multiply(frequency_domain_signal, rotations, out=rotations)
 
     # Inverse FFT to get the translated signal
-    shifted_signal = irfft(phase_shifted_signal, n=signal_length, axis=axis, overwrite_x=True)
+    shifted_signal = scipy.fft.irfft(phase_shifted_signal, n=signal_length, axis=axis, overwrite_x=True)
     return shifted_signal
 
 

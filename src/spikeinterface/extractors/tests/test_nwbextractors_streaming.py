@@ -4,10 +4,10 @@ import pickle
 import pytest
 import numpy as np
 
-from spikeinterface import load
+from spikeinterface import load_extractor
 from spikeinterface.core.testing import check_recordings_equal
 from spikeinterface.core.testing import check_recordings_equal, check_sortings_equal
-from spikeinterface.extractors.extractor_classes import NwbRecordingExtractor, NwbSortingExtractor
+from spikeinterface.extractors import NwbRecordingExtractor, NwbSortingExtractor
 
 
 @pytest.mark.streaming_extractors
@@ -38,7 +38,7 @@ def test_recording_s3_nwb_fsspec(tmp_path, cache):
         assert full_traces.dtype == dtype
 
     if rec.has_scaleable_traces():
-        trace_scaled = rec.get_traces(segment_index=segment_index, return_in_uV=True, end_frame=2)
+        trace_scaled = rec.get_traces(segment_index=segment_index, return_scaled=True, end_frame=2)
         assert trace_scaled.dtype == "float32"
 
     tmp_file = tmp_path / "test_fsspec_recording.pkl"
@@ -73,8 +73,8 @@ def test_recording_s3_nwb_remfile():
         assert full_traces.shape == (num_frames, num_chans)
         assert full_traces.dtype == dtype
 
-    if rec.has_scaleable_traces():
-        trace_scaled = rec.get_traces(segment_index=segment_index, return_in_uV=True, end_frame=2)
+    if rec.has_scaled():
+        trace_scaled = rec.get_traces(segment_index=segment_index, return_scaled=True, end_frame=2)
         assert trace_scaled.dtype == "float32"
 
 
@@ -103,8 +103,8 @@ def test_recording_s3_nwb_remfile_file_like(tmp_path):
         assert full_traces.shape == (num_frames, num_chans)
         assert full_traces.dtype == dtype
 
-    if rec.has_scaleable_traces():
-        trace_scaled = rec.get_traces(segment_index=segment_index, return_in_uV=True, end_frame=2)
+    if rec.has_scaled():
+        trace_scaled = rec.get_traces(segment_index=segment_index, return_scaled=True, end_frame=2)
         assert trace_scaled.dtype == "float32"
 
     # test pickling
@@ -219,19 +219,13 @@ def test_sorting_s3_nwb_zarr(tmp_path):
     assert not sorting.check_serializability("pickle")
 
     # test to/from dict
-    sorting_loaded = load(sorting.to_dict())
+    sorting_loaded = load_extractor(sorting.to_dict())
 
     # just take 3 random units to test
     rng = np.random.default_rng(seed=2205)
     three_unit_ids = rng.choice(sorting.unit_ids, size=3)
-
-    first_spike_sample_index = 21864115
-    sorting_sub = sorting.select_units(unit_ids=three_unit_ids).frame_slice(
-        start_frame=first_spike_sample_index, end_frame=first_spike_sample_index + 10_000
-    )
-    sorting_loaded_sub = sorting_loaded.select_units(unit_ids=three_unit_ids).frame_slice(
-        start_frame=first_spike_sample_index, end_frame=first_spike_sample_index + 10_000
-    )
+    sorting_sub = sorting.select_units(unit_ids=three_unit_ids)
+    sorting_loaded_sub = sorting_loaded.select_units(unit_ids=three_unit_ids)
 
     check_sortings_equal(sorting_sub, sorting_loaded_sub)
 

@@ -1,6 +1,10 @@
-import pytest
+import shutil
+from pathlib import Path
 
-from spikeinterface.extractors import read_bids
+import pytest
+import numpy as np
+
+from spikeinterface.extractors import *
 
 
 @pytest.mark.skip("BIDS is tested locally only at the moment")
@@ -30,7 +34,7 @@ def test_read_bids_folder():
     # ~ print(rec1)
 
     import matplotlib.pyplot as plt
-    from probeinterface.plotting import plot_probe_group
+    from probeinterface.plotting import plot_probe, plot_probe_group
 
     fig, ax = plt.subplots()
     probegroup = rec2.get_probegroup()

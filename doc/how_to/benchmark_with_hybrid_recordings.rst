@@ -170,7 +170,7 @@ rescaling, relocating, or further selections with the
 ``sgen.select_templates`` functions.
 
 In our case, let’s rescale the amplitudes between 50 and 150
-µV and relocate them towards the bottom half of the probe,
+:math:`\mu`\ V and relocate them towards the bottom half of the probe,
 where the activity looks interesting!
 
 .. code:: ipython3
@@ -2531,8 +2531,9 @@ Although non of the sorters find all units perfectly, ``Kilosort2.5``,
 ``Kilosort4``, and ``SpyKING CIRCUS 2`` all find around 10-12 hybrid
 units with accuracy greater than 80%. ``Kilosort4`` has a better overall
 curve, being able to find almost all units with an accuracy above 50%.
-``Kilosort2.5`` performs well when looking at precision (not finding spikes
-when it shouldn’t), but it has a lower recall (finding all spikes in the ground truth).
+``Kilosort2.5`` performs well when looking at precision (finding all
+spikes in a hybrid unit), at the cost of lower recall (finding spikes
+when it shouldn’t).
 
 In this example, we showed how to:
 

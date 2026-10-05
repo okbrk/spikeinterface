@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 from spikeinterface.core.core_tools import define_function_from_class
@@ -20,11 +22,6 @@ class AxonaRecordingExtractor(NeoBaseRecordingExtractor):
     use_names_as_ids : bool, default: False
         Determines the format of the channel IDs used by the extractor. If set to True, the channel IDs will be the
         names from NeoRawIO. If set to False, the channel IDs will be the ids provided by NeoRawIO.
-
-    Examples
-    --------
-    >>> from spikeinterface.extractors import read_axona
-    >>> recording = read_axona(file_path=r'my_data.set')
     """
 
     NeoRawIOClass = "AxonaRawIO"

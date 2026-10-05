@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from spikeinterface.core import generate_ground_truth_recording
 
 
@@ -19,5 +21,4 @@ def make_dataset():
         noise_kwargs=dict(noise_levels=5.0, strategy="on_the_fly"),
         seed=2205,
     )
-
     return recording, sorting

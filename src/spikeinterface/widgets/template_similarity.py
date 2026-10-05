@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import numpy as np
 
 from .base import BaseWidget, to_attr
-from spikeinterface.core.sortinganalyzer import SortingAnalyzer
+from ..core.sortinganalyzer import SortingAnalyzer
 
 
 class TemplateSimilarityWidget(BaseWidget):
@@ -85,17 +87,8 @@ class TemplateSimilarityWidget(BaseWidget):
             self.figure.colorbar(im)
 
     def plot_sortingview(self, data_plot, **backend_kwargs):
-        self.plot_figpack(data_plot, use_sortingview=True, **backend_kwargs)
-
-    def plot_figpack(self, data_plot, **backend_kwargs):
-        from .utils_figpack import (
-            make_serializable,
-            handle_display_and_url,
-            import_figpack_or_sortingview,
-        )
-
-        use_sortingview = backend_kwargs.get("use_sortingview", False)
-        vv_base, vv_views = import_figpack_or_sortingview(use_sortingview)
+        import sortingview.views as vv
+        from .utils_sortingview import generate_unit_table_view, make_serializable, handle_display_and_url
 
         dp = to_attr(data_plot)
 
@@ -107,11 +100,9 @@ class TemplateSimilarityWidget(BaseWidget):
         for i1, u1 in enumerate(unit_ids):
             for i2, u2 in enumerate(unit_ids):
                 ss_items.append(
-                    vv_views.UnitSimilarityScore(
-                        unit_id1=u1, unit_id2=u2, similarity=dp.similarity[i1, i2].astype("float32")
-                    )
+                    vv.UnitSimilarityScore(unit_id1=u1, unit_id2=u2, similarity=dp.similarity[i1, i2].astype("float32"))
                 )
 
-        self.view = vv_views.UnitSimilarityMatrix(unit_ids=list(unit_ids), similarity_scores=ss_items)
+        self.view = vv.UnitSimilarityMatrix(unit_ids=list(unit_ids), similarity_scores=ss_items)
 
         self.url = handle_display_and_url(self, self.view, **backend_kwargs)

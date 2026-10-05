@@ -1,15 +1,11 @@
+from __future__ import annotations
+
 from pathlib import Path
-import importlib.util
 
 import numpy as np
 
 from spikeinterface.core import BaseRecording, BaseRecordingSegment
 from spikeinterface.core.core_tools import define_function_from_class
-
-if importlib.util.find_spec("h5py") is not None:
-    HAVE_H5PY = True
-else:
-    HAVE_H5PY = False
 
 
 class MCSH5RecordingExtractor(BaseRecording):
@@ -32,7 +28,9 @@ class MCSH5RecordingExtractor(BaseRecording):
 
     def __init__(self, file_path, stream_id=0):
 
-        if not HAVE_H5PY:
+        try:
+            import h5py
+        except ImportError:
             raise ImportError(self.installation_mesg)
 
         self._file_path = file_path

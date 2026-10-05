@@ -1,38 +1,27 @@
+from __future__ import annotations
+
 from pathlib import Path
 from collections import deque
-import importlib.util
-
-if importlib.util.find_spec("h5py") is not None and importlib.util.find_spec("scipy") is not None:
-    if importlib.util.find_spec("scipy.io") is not None and importlib.util.find_spec("scipy.io.matlab") is not None:
-        HAVE_MATLAB_HELPERS = True
-    else:
-        HAVE_MATLAB_HELPERS = False
-else:
-    HAVE_MATLAB_HELPERS = False
-
-if importlib.util.find_spec("hdf5storage") is not None:
-    HAVE_HDF5STORAGE = True
-else:
-    HAVE_HDF5STORAGE = False
 
 
 class MatlabHelper:
+    mode = "file"
     installation_mesg = (
         "To use the MATSortingExtractor install h5py and scipy: " "\n\n pip install h5py scipy\n\n"
     )  # error message when not installed
 
     def __init__(self, file_path):
-        if HAVE_MATLAB_HELPERS:
+        try:
             import h5py
-            from scipy.io.matlab import loadmat
-        else:
+            from scipy.io.matlab import loadmat, savemat
+        except ImportError:
             raise ImportError(self.installation_mesg)
 
         file_path = Path(file_path) if isinstance(file_path, str) else file_path
         if not isinstance(file_path, Path):
             raise TypeError(f"Expected a str or Path file_path but got '{type(file_path).__name__}'")
 
-        file_path = file_path.absolute()  # get absolute path to this file
+        file_path = file_path.resolve()  # get absolute path to this file
         if not file_path.is_file():
             raise ValueError(f"Specified file path '{file_path}' is not a file.")
 
@@ -73,12 +62,12 @@ class MatlabHelper:
             "\n\n pip install hdf5storage\n\n"
         )
 
-        if HAVE_HDF5STORAGE:
+        try:
             import hdf5storage
-        else:
+        except ImportError:
             raise ImportError(hdf5storage_import_error)
 
-        from scipy.io.matlab import savemat
+        from scipy.io.matlab import loadmat, savemat
 
         if version == "7.3":
             hdf5storage.write(dict_to_write, "/", mat_file_path, matlab_compatible=True, options="w")

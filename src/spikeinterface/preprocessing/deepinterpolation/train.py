@@ -1,13 +1,15 @@
-import multiprocessing as mp
+from __future__ import annotations
+import os
 import warnings
-from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Callable, Optional
 
-from spikeinterface.core import BaseRecording
-from spikeinterface.core.job_tools import get_usable_cpu_count
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 
 from .tf_utils import import_tf
+from ...core import BaseRecording
+
 
 global train_func
 
@@ -17,17 +19,17 @@ def train_deepinterpolation(
     model_folder: str | Path,
     model_name: str,
     desired_shape: tuple[int, int],
-    train_start_s: float | None = None,
-    train_end_s: float | None = None,
-    train_duration_s: float | None = None,
-    test_start_s: float | None = None,
-    test_end_s: float | None = None,
-    test_duration_s: float | None = None,
-    test_recordings: BaseRecording | list[BaseRecording] | None = None,
+    train_start_s: Optional[float] = None,
+    train_end_s: Optional[float] = None,
+    train_duration_s: Optional[float] = None,
+    test_start_s: Optional[float] = None,
+    test_end_s: Optional[float] = None,
+    test_duration_s: Optional[float] = None,
+    test_recordings: Optional[BaseRecording | list[BaseRecording]] = None,
     pre_frame: int = 30,
     post_frame: int = 30,
     pre_post_omission: int = 1,
-    existing_model_path: str | Path | None = None,
+    existing_model_path: Optional[str | Path] = None,
     verbose: bool = True,
     nb_gpus: int = 1,
     steps_per_epoch: int = 10,
@@ -42,7 +44,7 @@ def train_deepinterpolation(
     network: Callable | None = None,
     use_gpu: bool = True,
     disable_tf_logger: bool = True,
-    memory_gpu: int | None = None,
+    memory_gpu: Optional[int] = None,
 ):
     """
     Train a deepinterpolation model from a recording extractor.
@@ -118,7 +120,7 @@ def train_deepinterpolation(
     """
 
     if nb_workers == -1:
-        nb_workers = get_usable_cpu_count()
+        nb_workers = os.cpu_count()
 
     args = (
         recordings,
@@ -171,11 +173,11 @@ def train_deepinterpolation_process(
     test_start_s: float,
     test_end_s: float,
     test_duration_s: float | None,
-    test_recordings: BaseRecording | list[BaseRecording] | None = None,
+    test_recordings: Optional[BaseRecording | list[BaseRecording]] = None,
     pre_frame: int = 30,
     post_frame: int = 30,
     pre_post_omission: int = 1,
-    existing_model_path: str | Path | None = None,
+    existing_model_path: Optional[str | Path] = None,
     verbose: bool = True,
     nb_gpus: int = 1,
     steps_per_epoch: int = 10,
@@ -190,10 +192,9 @@ def train_deepinterpolation_process(
     network: Callable | None = None,
     use_gpu: bool = True,
     disable_tf_logger: bool = True,
-    memory_gpu: int | None = None,
+    memory_gpu: Optional[int] = None,
 ):
     from deepinterpolation.trainor_collection import core_trainer
-
     from .generators import SpikeInterfaceRecordingGenerator
 
     # initialize TF

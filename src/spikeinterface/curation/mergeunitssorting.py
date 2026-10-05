@@ -1,9 +1,9 @@
-from copy import deepcopy
-
+from __future__ import annotations
+from typing import Union
 import numpy as np
-
 from spikeinterface.core.basesorting import BaseSorting, BaseSortingSegment
 from spikeinterface.core.core_tools import define_function_from_class
+from copy import deepcopy
 from spikeinterface.core.sorting_tools import generate_unit_ids_for_merge_group
 
 
@@ -13,7 +13,7 @@ class MergeUnitsSorting(BaseSorting):
 
     Parameters
     ----------
-    sorting : BaseSorting
+    sorting: BaseSorting
         The sorting object
     units_to_merge : list/tuple of lists/tuples
         A list of lists for every merge group. Each element needs to have at least two elements (two units to merge),
@@ -70,7 +70,7 @@ class MergeUnitsSorting(BaseSorting):
             rm_dup_delta = None
         else:
             rm_dup_delta = int(delta_time_ms / 1000 * sampling_frequency)
-        for parent_segment in self._parent_sorting.segments:
+        for parent_segment in self._parent_sorting._sorting_segments:
             sub_segment = MergeUnitsSortingSegment(parent_segment, units_to_merge, new_unit_ids, rm_dup_delta)
             self.add_sorting_segment(sub_segment)
 
@@ -149,8 +149,8 @@ class MergeUnitsSortingSegment(BaseSortingSegment):
     def get_unit_spike_train(
         self,
         unit_id,
-        start_frame: int | None = None,
-        end_frame: int | None = None,
+        start_frame: Union[int, None] = None,
+        end_frame: Union[int, None] = None,
     ) -> np.ndarray:
         if unit_id in self.new_unit_ids:
             ind = self.new_unit_ids.index(unit_id)
@@ -161,7 +161,7 @@ class MergeUnitsSortingSegment(BaseSortingSegment):
             else:
                 start_i = 0
             if end_frame is not None:
-                end_i = np.searchsorted(spike_times, end_frame, side="right")
+                end_i = np.searchsorted(spike_times, start_frame, side="right")
             else:
                 end_i = len(spike_times)
             return spike_times[start_i:end_i]

@@ -1,34 +1,28 @@
+from __future__ import annotations
+
+from .method_list import *
+
 from spikeinterface.core.job_tools import fix_job_kwargs, _shared_job_kwargs_doc
 
-import copy
-from ..tools import make_multi_method_doc
-from .method_list import clustering_methods
 
-
-def find_clusters_from_peaks(
-    recording, peaks, method=None, method_kwargs={}, extra_outputs=False, verbose=False, job_kwargs=None
-):
+def find_cluster_from_peaks(recording, peaks, method="stupid", method_kwargs={}, extra_outputs=False, **job_kwargs):
     """
     Find cluster from peaks.
 
+
     Parameters
     ----------
-    recording : RecordingExtractor
+    recording: RecordingExtractor
         The recording extractor object
-    peaks : numpy.array
+    peaks: numpy.array
         The peak vector
-    method : str
-        Which method to use ("dummy" | "XXXX")
-    method_kwargs : dict, default: dict()
+    method: str
+        Which method to use ("stupid" | "XXXX")
+    method_kwargs: dict, default: dict()
         Keyword arguments for the chosen method
-    extra_outputs : bool, default: False
+    extra_outputs: bool, default: False
         If True then debug is also return
-    verbose : Bool, default: False
-        If True, output is verbose
-    job_kwargs : dict
-        Parameters for TimeSeriesChunkExecutor
-
-    {method_doc}
+    {}
 
     Returns
     -------
@@ -44,11 +38,10 @@ def find_clusters_from_peaks(
     ), f"Method for clustering do not exists, should be in {list(clustering_methods.keys())}"
 
     method_class = clustering_methods[method]
-    params = copy.deepcopy(method_class._default_params.copy())
+    params = method_class._default_params.copy()
     params.update(**method_kwargs)
-    params.update(verbose=verbose)
 
-    outputs = method_class.main_function(recording, peaks, params, job_kwargs=job_kwargs)
+    outputs = method_class.main_function(recording, peaks, params)
 
     if extra_outputs:
         return outputs
@@ -59,5 +52,4 @@ def find_clusters_from_peaks(
         return labels_set, peak_labels
 
 
-method_doc = make_multi_method_doc(list(clustering_methods.values()))
-find_clusters_from_peaks.__doc__ = find_clusters_from_peaks.__doc__.format(method_doc=method_doc)
+find_cluster_from_peaks.__doc__ = find_cluster_from_peaks.__doc__.format(_shared_job_kwargs_doc)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from warnings import warn
 import json
@@ -6,9 +8,9 @@ import sys
 
 import numpy as np
 
-from spikeinterface.sorters.utils import ShellScript, get_matlab_shell_name, get_bash_path
-from spikeinterface.sorters.basesorter import get_job_kwargs, BaseSorter
-from spikeinterface.extractors.extractor_classes import KiloSortSortingExtractor
+from ..utils import ShellScript, get_matlab_shell_name, get_bash_path
+from ..basesorter import get_job_kwargs
+from spikeinterface.extractors import KiloSortSortingExtractor
 from spikeinterface.core import write_binary_recording
 from spikeinterface.preprocessing.zero_channel_pad import TracePaddedRecording
 
@@ -94,7 +96,7 @@ class KilosortBase:
         ops["fbinary"] = str(binary_file_path.absolute())  # will be created for 'openEphys'
         ops["fproc"] = str((sorter_output_folder / "temp_wh.dat").absolute())  # residual from RAM of preprocessed data
         ops["root"] = str(sorter_output_folder.absolute())  # 'openEphys' only: where raw files are
-        ops["trange"] = [0, np.inf]  #  time range to sort
+        ops["trange"] = [0, np.Inf]  #  time range to sort
         ops["chanMap"] = str((sorter_output_folder / "chanMap.mat").absolute())
 
         ops["fs"] = recording.get_sampling_frequency()  # sample rate
@@ -125,7 +127,7 @@ class KilosortBase:
         skip_kilosort_preprocessing = params.get("skip_kilosort_preprocessing", False)
 
         if (
-            recording.binary_compatible_with(dtype="int16", time_axis=0, file_paths_length=1)
+            recording.binary_compatible_with(dtype="int16", time_axis=0, file_paths_lenght=1)
             and not skip_kilosort_preprocessing
         ):
             # no copy
@@ -151,7 +153,7 @@ class KilosortBase:
             else:
                 padded_recording = recording
             write_binary_recording(
-                padded_recording,
+                recording=padded_recording,
                 file_paths=[binary_file_path],
                 dtype="int16",
                 **get_job_kwargs(params, verbose),
@@ -254,19 +256,6 @@ class KilosortBase:
             params_file = sorter_output_folder / "spikeinterface_params.json"
         with params_file.open("r") as f:
             sorter_params = json.load(f)["sorter_params"]
-
-        channel_ids = None
-        recording_attributes_file = sorter_output_folder.parent / "recording_attributes.json"
-        if recording_attributes_file.is_file():
-            with open(recording_attributes_file, "r") as f:
-                rec_attributes = json.load(f)
-                channel_ids = rec_attributes.get("channel_ids")
-        else:
-            recording = BaseSorter.load_recording_from_folder(sorter_output_folder.parent, with_warnings=False)
-            channel_ids = recording.channel_ids if recording is not None else None
-
         keep_good_only = sorter_params.get("keep_good_only", False)
-        sorting = KiloSortSortingExtractor(
-            folder_path=sorter_output_folder, keep_good_only=keep_good_only, channel_ids=channel_ids
-        )
+        sorting = KiloSortSortingExtractor(folder_path=sorter_output_folder, keep_good_only=keep_good_only)
         return sorting

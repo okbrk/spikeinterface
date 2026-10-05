@@ -4,8 +4,13 @@ This backwards compatibility module aims to:
   * mock the function extract_waveforms() and the class SortingAnalyzer() but based SortingAnalyzer
 """
 
+from __future__ import annotations
+
 import warnings
+from typing import Optional
+
 from pathlib import Path
+
 import json
 
 import numpy as np
@@ -18,15 +23,14 @@ from .sortinganalyzer import create_sorting_analyzer, get_extension_class
 from .job_tools import split_job_kwargs
 from .sparsity import ChannelSparsity
 from .sortinganalyzer import SortingAnalyzer, load_sorting_analyzer
-from .loading import load
-from .core_tools import ms_to_samples
+from .base import load_extractor
 from .analyzer_extension_core import ComputeRandomSpikes, ComputeWaveforms, ComputeTemplates
 
 _backwards_compatibility_msg = """####
 # extract_waveforms() and WaveformExtractor() have been replaced by the `SortingAnalyzer` since version 0.101.0.
 # You should use `spikeinterface.create_sorting_analyzer()` instead.
 # `spikeinterface.extract_waveforms()` is now mocking the old behavior for backwards compatibility only,
-# and may potentially be removed in a future version.
+# and will be removed with version 0.103.0
 ####"""
 
 
@@ -97,7 +101,7 @@ def extract_waveforms(
         folder=folder,
         sparse=sparse,
         sparsity=sparsity,
-        return_in_uV=return_scaled,
+        return_scaled=return_scaled,
         **sparsity_kwargs,
     )
 
@@ -161,12 +165,12 @@ class MockWaveformExtractor:
     @property
     def nbefore(self) -> int:
         ms_before = self.sorting_analyzer.get_extension("waveforms").params["ms_before"]
-        return ms_to_samples(ms_before, self.sampling_frequency)
+        return int(ms_before * self.sampling_frequency / 1000.0)
 
     @property
     def nafter(self) -> int:
         ms_after = self.sorting_analyzer.get_extension("waveforms").params["ms_after"]
-        return ms_to_samples(ms_after, self.sampling_frequency)
+        return int(ms_after * self.sampling_frequency / 1000.0)
 
     @property
     def nsamples(self) -> int:
@@ -174,7 +178,7 @@ class MockWaveformExtractor:
 
     @property
     def return_scaled(self) -> bool:
-        return self.sorting_analyzer.return_in_uV
+        return self.sorting_analyzer.get_extension("waveforms").params["return_scaled"]
 
     @property
     def dtype(self):
@@ -186,7 +190,7 @@ class MockWaveformExtractor:
     def has_recording(self) -> bool:
         return self.sorting_analyzer._recording is not None
 
-    def get_num_samples(self, segment_index: int | None = None) -> int:
+    def get_num_samples(self, segment_index: Optional[int] = None) -> int:
         return self.sorting_analyzer.get_num_samples(segment_index)
 
     def get_total_samples(self) -> int:
@@ -243,9 +247,6 @@ class MockWaveformExtractor:
 
     def has_extension(self, extension_name: str) -> bool:
         return self.sorting_analyzer.has_extension(extension_name)
-
-    def load_extension(self, extension_name: str):
-        return self.sorting_analyzer.get_extension(extension_name)
 
     def select_units(self, unit_ids):
         return self.sorting_analyzer.select_units(unit_ids)
@@ -315,12 +316,12 @@ class MockWaveformExtractor:
             return wfs
 
     def get_all_templates(
-        self, unit_ids: list | np.ndarray | tuple | None = None, mode="average", percentile: float | None = None
+        self, unit_ids: list | np.array | tuple | None = None, mode="average", percentile: float | None = None
     ):
         ext = self.sorting_analyzer.get_extension("templates")
 
         if mode == "percentile":
-            key = f"percentile_{percentile}"
+            key = f"pencentile_{percentile}"
         else:
             key = mode
 
@@ -342,42 +343,17 @@ class MockWaveformExtractor:
         return templates[0]
 
 
-def load_sorting_analyzer_or_waveforms(folder, sorting=None):
-    """
-    Load a SortingAnalyzer from either a newly saved SortingAnalyzer folder or an old WaveformExtractor folder.
-
-    Parameters
-    ----------
-    folder: str | Path
-        The folder to the sorting analyzer or waveform extractor
-    sorting: BaseSorting | None, default: None
-        The sorting object to instantiate with the SortingAnalyzer (only used for old WaveformExtractor)
-
-    Returns
-    -------
-    sorting_analyzer: SortingAnalyzer
-        The returned SortingAnalyzer.
-    """
-    folder = Path(folder)
-    if folder.suffix == ".zarr":
-        return load_sorting_analyzer(folder)
-    elif (folder / "spikeinterface_info.json").exists():
-        return load_sorting_analyzer(folder)
-    else:
-        return load_waveforms(folder, sorting=sorting, output="SortingAnalyzer")
-
-
 def load_waveforms(
     folder,
     with_recording: bool = True,
-    sorting: BaseSorting | None = None,
+    sorting: Optional[BaseSorting] = None,
     output="MockWaveformExtractor",
-) -> MockWaveformExtractor | SortingAnalyzer:
+):
     """
-    This read an old WaveformsExtractor folder (folder or zarr) and convert it into a SortingAnalyzer or MockWaveformExtractor.
+    This read an old WaveformsExtactor folder (folder or zarr) and convert it into a SortingAnalyzer or MockWaveformExtractor.
 
     It also mimic the old load_waveforms by opening a Sortingresult folder and return a MockWaveformExtractor.
-    This later behavior is useful to no break old code like this in version >=0.101
+    This later behavior is usefull to no break old code like this in versio >=0.101
 
     >>> # In this example we is a MockWaveformExtractor that behave the same as before
     >>> we = extract_waveforms(..., folder="/my_we")
@@ -450,7 +426,7 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
     with open(params_file, "r") as f:
         params = json.load(f)
 
-    return_in_uV = params["return_scaled"]
+    return_scaled = params["return_scaled"]
 
     sparsity_file = folder / "sparsity.json"
     if sparsity_file.exists():
@@ -474,30 +450,24 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
     recording = None
     if (folder / "recording.json").exists():
         try:
-            recording = load(folder / "recording.json", base_folder=folder)
+            recording = load_extractor(folder / "recording.json", base_folder=folder)
         except:
             pass
     elif (folder / "recording.pickle").exists():
         try:
-            recording = load(folder / "recording.pickle", base_folder=folder)
+            recording = load_extractor(folder / "recording.pickle", base_folder=folder)
         except:
             pass
 
     # sorting
     if sorting is None:
         if (folder / "sorting.json").exists():
-            sorting = load(folder / "sorting.json", base_folder=folder)
+            sorting = load_extractor(folder / "sorting.json", base_folder=folder)
         elif (folder / "sorting.pickle").exists():
-            sorting = load(folder / "sorting.pickle", base_folder=folder)
+            sorting = load_extractor(folder / "sorting.pickle", base_folder=folder)
 
     sorting_analyzer = SortingAnalyzer.create_memory(
-        sorting,
-        recording,
-        sparsity=sparsity,
-        peak_mode="extremum",
-        peak_sign="neg",
-        return_in_uV=return_in_uV,
-        rec_attributes=rec_attributes,
+        sorting, recording, sparsity=sparsity, return_scaled=return_scaled, rec_attributes=rec_attributes
     )
 
     # waveforms
@@ -527,8 +497,8 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
         else:
             max_num_channel = np.max(np.sum(sparsity.mask, axis=1))
 
-        nbefore = ms_to_samples(params["ms_before"], sorting.sampling_frequency)
-        nafter = ms_to_samples(params["ms_after"], sorting.sampling_frequency)
+        nbefore = int(params["ms_before"] * sorting.sampling_frequency / 1000.0)
+        nafter = int(params["ms_after"] * sorting.sampling_frequency / 1000.0)
 
         waveforms = np.zeros((num_spikes, nbefore + nafter, max_num_channel), dtype=params["dtype"])
         # then read waveforms per units
@@ -541,7 +511,6 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
         ext = ComputeRandomSpikes(sorting_analyzer)
         ext.params = dict()
         ext.data = dict(random_spikes_indices=random_spikes_indices)
-        ext.run_info = None
         sorting_analyzer.extensions["random_spikes"] = ext
 
         ext = ComputeWaveforms(sorting_analyzer)
@@ -551,7 +520,6 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
             dtype=params["dtype"],
         )
         ext.data["waveforms"] = waveforms
-        ext.run_info = None
         sorting_analyzer.extensions["waveforms"] = ext
 
     # templates saved dense
@@ -566,7 +534,6 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
         ext.params = dict(ms_before=params["ms_before"], ms_after=params["ms_after"], operators=list(templates.keys()))
         for mode, arr in templates.items():
             ext.data[mode] = arr
-        ext.run_info = None
         sorting_analyzer.extensions["templates"] = ext
 
     for old_name, new_name in old_extension_to_new_class_map.items():
@@ -633,17 +600,12 @@ def _read_old_waveforms_extractor_binary(folder, sorting):
                     pc_all[mask, ...] = pc_one
                 ext.data["pca_projection"] = pc_all
 
-        # Install raw on-disk params and run compat handler first,
-        # matching what AnalyzerExtension.load does for non-legacy folders.
-        ext.params = dict(params)
+        # update params
+        new_params = ext._set_params()
+        updated_params = make_ext_params_up_to_date(ext, params, new_params)
+        ext.set_params(**updated_params, save=False)
         if ext.need_backward_compatibility_on_load:
             ext._handle_backward_compatibility_on_load()
-
-        # Now merge and validate — deprecated names are already migrated.
-        new_params = ext._set_params()
-        updated_params = make_ext_params_up_to_date(ext, ext.params, new_params)
-        ext.set_params(**updated_params, save=False)
-        ext.run_info = None
 
         sorting_analyzer.extensions[new_name] = ext
 
@@ -685,7 +647,7 @@ def make_ext_params_up_to_date(ext, old_params, new_params):
 #     recording = None
 #     try:
 #         recording_dict = waveforms_root.attrs["recording"]
-#         recording = load(recording_dict, base_folder=folder)
+#         recording = load_extractor(recording_dict, base_folder=folder)
 #     except:
 #         pass
 
@@ -693,7 +655,7 @@ def make_ext_params_up_to_date(ext, old_params, new_params):
 #     if sorting is None:
 #         assert "sorting" in waveforms_root.attrs, "Could not load sorting object"
 #         sorting_dict = waveforms_root.attrs["sorting"]
-#         sorting = load(sorting_dict, base_folder=folder)
+#         sorting = load_extractor(sorting_dict, base_folder=folder)
 
 #     if "sparsity" in waveforms_root.attrs:
 #         sparsity_dict = waveforms_root.attrs["sparsity"]
@@ -748,6 +710,7 @@ def make_ext_params_up_to_date(ext, old_params, new_params):
 #         ext.params = dict(
 #             ms_before=params["ms_before"],
 #             ms_after=params["ms_after"],
+#             return_scaled=params["return_scaled"],
 #             dtype=params["dtype"],
 #         )
 #         ext.data["waveforms"] = waveforms
@@ -763,7 +726,7 @@ def make_ext_params_up_to_date(ext, old_params, new_params):
 #     if len(templates) > 0:
 #         ext = ComputeTemplates(sorting_analyzer)
 #         ext.params = dict(
-#             nbefore=nbefore, nafter=nafter,  operators=list(templates.keys())
+#             nbefore=nbefore, nafter=nafter, return_scaled=params["return_scaled"], operators=list(templates.keys())
 #         )
 #         for mode, arr in templates.items():
 #             ext.data[mode] = arr

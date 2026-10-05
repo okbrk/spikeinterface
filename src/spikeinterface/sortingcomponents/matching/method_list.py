@@ -1,20 +1,14 @@
-from .nearest import NearestTemplatesPeeler, NearestTemplatesSVDPeeler
-from .tdc_peeler import TridesclousPeeler
-from .circus import CircusOMPPeeler
+from __future__ import annotations
+
+from .naive import NaiveMatching
+from .tdc import TridesclousPeeler
+from .circus import CircusPeeler, CircusOMPSVDPeeler
 from .wobble import WobbleMatch
 
 matching_methods = {
-    "nearest": NearestTemplatesPeeler,
-    "nearest-svd": NearestTemplatesSVDPeeler,
+    "naive": NaiveMatching,
     "tdc-peeler": TridesclousPeeler,
-    "circus-omp": CircusOMPPeeler,
+    "circus": CircusPeeler,
+    "circus-omp-svd": CircusOMPSVDPeeler,
     "wobble": WobbleMatch,
 }
-
-try:
-    # Kilosort licence (GPL 3) is forcing us to make and use an external package
-    from spikeinterface_kilosort_components.kilosort_matching import KiloSortMatching
-
-    matching_methods["kilosort-matching"] = KiloSortMatching
-except ImportError:
-    pass

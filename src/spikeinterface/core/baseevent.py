@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 
 from .base import BaseExtractor, BaseSegment
@@ -65,11 +67,6 @@ class BaseEvent(BaseExtractor):
 
     def get_num_segments(self):
         return len(self._event_segments)
-
-    def select_segment(self, segment_indices: int | list[int]):
-        from .segmentutils import SelectSegmentEvent
-
-        return SelectSegmentEvent(self, segment_indices=segment_indices)
 
     def get_events(
         self,
@@ -140,7 +137,7 @@ class BaseEventSegment(BaseSegment):
     def __init__(self):
         BaseSegment.__init__(self)
 
-    def get_event_times(self, channel_id: int | str, start_time: float, end_time: float) -> np.ndarray:
+    def get_event_times(self, channel_id: int | str, start_time: float, end_time: float):
         """Returns event timestamps of a channel in seconds
         Parameters
         ----------

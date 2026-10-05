@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import numpy as np
 
-from spikeinterface.core.core_tools import define_function_handling_dict_from_class
+from spikeinterface.core.core_tools import define_function_from_class
 from .basepreprocessor import BasePreprocessor, BasePreprocessorSegment
 
-from spikeinterface.core import get_random_data_chunks
+from ..core import get_random_data_chunks
 
 
 class ClipRecording(BasePreprocessor):
@@ -33,7 +35,7 @@ class ClipRecording(BasePreprocessor):
         value_max = a_max
 
         BasePreprocessor.__init__(self, recording)
-        for parent_segment in recording.segments:
+        for parent_segment in recording._recording_segments:
             rec_segment = ClipRecordingSegment(parent_segment, a_min, value_min, a_max, value_max)
             self.add_recording_segment(rec_segment)
 
@@ -130,7 +132,7 @@ class BlankSaturationRecording(BasePreprocessor):
                 value_max = fill_value
 
         BasePreprocessor.__init__(self, recording)
-        for parent_segment in recording.segments:
+        for parent_segment in recording._recording_segments:
             rec_segment = ClipRecordingSegment(parent_segment, a_min, value_min, a_max, value_max)
             self.add_recording_segment(rec_segment)
 
@@ -167,7 +169,5 @@ class ClipRecordingSegment(BasePreprocessorSegment):
         return traces
 
 
-clip = define_function_handling_dict_from_class(source_class=ClipRecording, name="clip")
-blank_saturation = define_function_handling_dict_from_class(
-    source_class=BlankSaturationRecording, name="blank_saturation"
-)
+clip = define_function_from_class(source_class=ClipRecording, name="clip")
+blank_staturation = define_function_from_class(source_class=BlankSaturationRecording, name="blank_staturation")

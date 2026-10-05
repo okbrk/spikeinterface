@@ -2,8 +2,6 @@ import pytest
 
 import shutil
 
-from pathlib import Path
-
 from spikeinterface.core import generate_ground_truth_recording
 from spikeinterface.core import create_sorting_analyzer
 from spikeinterface.core import Templates
@@ -81,20 +79,15 @@ def _check_result_extension(sorting_analyzer, extension_name, cache_folder):
 )
 def test_ComputeRandomSpikes(format, sparse, create_cache_folder):
     cache_folder = create_cache_folder
-    print("Creating analyzer")
     sorting_analyzer = get_sorting_analyzer(cache_folder, format=format, sparse=sparse)
 
-    print("Computing random spikes")
     ext = sorting_analyzer.compute("random_spikes", max_spikes_per_unit=10, seed=2205)
     indices = ext.data["random_spikes_indices"]
     assert indices.size == 10 * sorting_analyzer.sorting.unit_ids.size
 
-    print("Checking results")
     _check_result_extension(sorting_analyzer, "random_spikes", cache_folder)
-    print("Delering extension")
     sorting_analyzer.delete_extension("random_spikes")
 
-    print("Re-computing random spikes")
     ext = sorting_analyzer.compute("random_spikes", method="all")
     indices = ext.data["random_spikes_indices"]
     assert indices.size == len(sorting_analyzer.sorting.to_spike_vector())
@@ -160,7 +153,7 @@ def test_ComputeTemplates(format, sparse, create_cache_folder):
 
     # they all should be in data
     data = sorting_analyzer.get_extension("templates").data
-    for k in ["average", "std", "median", "percentile_5.0", "percentile_95.0"]:
+    for k in ["average", "std", "median", "pencentile_5.0", "pencentile_95.0"]:
         assert k in data.keys()
         assert data[k].shape[0] == sorting_analyzer.unit_ids.size
         assert data[k].shape[2] == sorting_analyzer.channel_ids.size
@@ -179,16 +172,6 @@ def test_ComputeTemplates(format, sparse, create_cache_folder):
 
     templates = temp_ext.get_templates(outputs="Templates")
     assert isinstance(templates, Templates)
-
-    for unit_ids in (sorting_analyzer.unit_ids[::-1], sorting_analyzer.unit_ids[[3, 1]]):
-        sub = sorting_analyzer.select_units(unit_ids)
-        sub_ext = sub.get_extension("templates")
-        for unit_id in unit_ids:
-            for operator in ("average", "std"):
-                np.testing.assert_array_equal(
-                    sub_ext.get_unit_template(unit_id, operator=operator),
-                    temp_ext.get_unit_template(unit_id, operator=operator),
-                )
 
     # import matplotlib.pyplot as plt
     # for unit_index, unit_id in enumerate(sorting_analyzer.unit_ids):
@@ -262,17 +245,16 @@ def test_compute_several(create_cache_folder):
 
 
 if __name__ == "__main__":
-    cache_folder = Path(__file__).resolve().parents[4] / "cache_folder" / "core"
-    # test_ComputeWaveforms(format="memory", sparse=True, create_cache_folder=cache_folder)
-    # test_ComputeWaveforms(format="memory", sparse=False, create_cache_folder=cache_folder)
-    # test_ComputeWaveforms(format="binary_folder", sparse=True, create_cache_folder=cache_folder)
-    # test_ComputeWaveforms(format="binary_folder", sparse=False, create_cache_folder=cache_folder)
-    # test_ComputeWaveforms(format="zarr", sparse=True, create_cache_folder=cache_folder)
-    # test_ComputeWaveforms(format="zarr", sparse=False, create_cache_folder=cache_folder)
-    # test_ComputeRandomSpikes(format="memory", sparse=True, create_cache_folder=cache_folder)
-    test_ComputeRandomSpikes(format="binary_folder", sparse=False, create_cache_folder=cache_folder)
-    test_ComputeTemplates(format="memory", sparse=True, create_cache_folder=cache_folder)
-    test_ComputeNoiseLevels(format="memory", sparse=False, create_cache_folder=cache_folder)
 
-    # test_get_children_dependencies()
-    # test_delete_on_recompute(cache_folder)
+    test_ComputeWaveforms(format="memory", sparse=True)
+    test_ComputeWaveforms(format="memory", sparse=False)
+    test_ComputeWaveforms(format="binary_folder", sparse=True)
+    test_ComputeWaveforms(format="binary_folder", sparse=False)
+    test_ComputeWaveforms(format="zarr", sparse=True)
+    test_ComputeWaveforms(format="zarr", sparse=False)
+    test_ComputeRandomSpikes(format="memory", sparse=True)
+    test_ComputeTemplates(format="memory", sparse=True)
+    test_ComputeNoiseLevels(format="memory", sparse=False)
+
+    test_get_children_dependencies()
+    test_delete_on_recompute()

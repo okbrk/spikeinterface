@@ -27,14 +27,12 @@ SpikeInterface consists of several sub-packages which encapsulate all steps in a
 - :py:mod:`spikeinterface.preprocessing`
 - :py:mod:`spikeinterface.sorters`
 - :py:mod:`spikeinterface.postprocessing`
-- :py:mod:`spikeinterface.metrics`
+- :py:mod:`spikeinterface.qualitymetrics`
 - :py:mod:`spikeinterface.widgets`
 - :py:mod:`spikeinterface.exporters`
 - :py:mod:`spikeinterface.comparison`
 - :py:mod:`spikeinterface.curation` (under development)
-- :py:mod:`spikeinterface.generation`
-- :py:mod:`spikeinterface.benchmark`
-- :py:mod:`spikeinterface.sortingcomponents` (under development forever)
+- :py:mod:`spikeinterface.sortingcomponents` (under development)
 
 
 .. image:: images/overview.png

@@ -1,20 +1,15 @@
+from __future__ import annotations
+
 import math
-from typing import Literal
+from typing import Optional
 
 import numpy as np
 from numpy.typing import ArrayLike
+from probeinterface import Probe
 from spikeinterface.core import BaseRecording, BaseRecordingSegment, BaseSorting, Templates
 
-from probeinterface import Probe
 
-
-def interpolate_templates(
-    templates_array: np.ndarray,
-    source_locations: np.ndarray,
-    dest_locations: np.ndarray,
-    interpolation_method: Literal["cubic", "linear", "nearest", "thin_plate"] = "cubic",
-    interpolation_kwargs: None | dict = None,
-):
+def interpolate_templates(templates_array, source_locations, dest_locations, interpolation_method="cubic"):
     """
     Interpolate templates_array to new positions.
     Useful to create motion or to remap templates_array form probeA to probeB.
@@ -30,37 +25,24 @@ def interpolate_templates(
         The channel source location corresponding to templates_array.
         shape = (num_channels, 2)
     dest_locations : np.array
-        The new channel position, if ndim == 3, then the interpolation is broadcasted with last dim.
+        The new channel position, if ndim == 3, then the interpolation is broadcated with last dim.
         shape = (num_channels, 2) or (num_motions, num_channels, 2)
     interpolation_method : str, default "cubic"
         The interpolation method.
-    interpolation_kwargs
-        Kwargs that are passed to RBFInterpolator (if interpolation_method = "thin_plate") or to
-        griddata (otherwise).
 
     Returns
     -------
     new_templates_array : np.array
         shape = (num_templates, num_samples, num_channels) or = (num_motions, num_templates, num_samples, num_channel)
     """
-    from scipy.interpolate import griddata, RBFInterpolator
-
-    if interpolation_kwargs is None:
-        interpolation_kwargs = dict()
+    import scipy.interpolate
 
     source_locations = np.asarray(source_locations)
     dest_locations = np.asarray(dest_locations)
-
-    dest_locations_dims = dest_locations.ndim
-
-    num_channels = dest_locations.shape[-2]
-    num_templates, num_samples = templates_array.shape[:2]
-
-    if dest_locations_dims == 2:
-        new_shape = (num_templates, num_samples, num_channels)
-    elif dest_locations_dims == 3:
-        num_motions = dest_locations.shape[0]
-        new_shape = (num_motions, num_templates, num_samples, num_channels)
+    if dest_locations.ndim == 2:
+        new_shape = templates_array.shape
+    elif dest_locations.ndim == 3:
+        new_shape = (dest_locations.shape[0],) + templates_array.shape
     else:
         raise ValueError(f"Incorrect dimensions for dest_locations: {dest_locations.ndim}. Dimensions can be 2 or 3. ")
 
@@ -69,38 +51,12 @@ def interpolate_templates(
     for template_index in range(templates_array.shape[0]):
         for sample_index in range(templates_array.shape[1]):
             template = templates_array[template_index, sample_index, :]
-
-            if interpolation_method == "thin_plate":
-
-                if "neighbors" not in interpolation_kwargs:
-                    # If neighbors it not passed, `RBFInterpolator` uses all channels.
-                    # This works poorly for standard ephys template interpolation.
-                    # Depending on the probe, you might want to decrease this value.
-                    interpolation_kwargs["neighbors"] = 12
-
-                tps_interpolator = RBFInterpolator(
-                    source_locations, template, kernel="thin_plate_spline", **interpolation_kwargs
-                )
-                if dest_locations_dims == 2:
-                    interp_template = tps_interpolator(dest_locations)
-                elif dest_locations_dims == 3:
-                    interp_template = np.zeros((num_motions, num_channels))
-                    for a in range(num_motions):
-                        interp_template[a, :] = tps_interpolator(dest_locations[a])
-
-            else:
-                interp_template = griddata(
-                    source_locations,
-                    template,
-                    dest_locations,
-                    method=interpolation_method,
-                    fill_value=0,
-                    **interpolation_kwargs,
-                )
-
-            if dest_locations_dims == 2:
+            interp_template = scipy.interpolate.griddata(
+                source_locations, template, dest_locations, method=interpolation_method, fill_value=0
+            )
+            if dest_locations.ndim == 2:
                 new_templates_array[template_index, sample_index, :] = interp_template
-            elif dest_locations_dims == 3:
+            elif dest_locations.ndim == 3:
                 new_templates_array[:, template_index, sample_index, :] = interp_template
 
     return new_templates_array
@@ -158,18 +114,8 @@ class DriftingTemplates(Templates):
 
     This class supports 2 different strategies:
       * move every templates on-the-fly, this lead to one interpolation per spike
-      * precompute some displacements for all templates and use a discrete interpolation, for instance by step of 1um
+      * precompute some displacements for all templates and use a discreate interpolation, for instance by step of 1um
         This is the same strategy used by MEArec.
-
-    Parameters
-    ----------
-    templates_array_moved : np.array
-        Shape is (num_displacement, num_templates, num_samples, num_channels)
-    displacements : np.array
-        Displacement vector
-        shape : (num_displacement, 2)
-    **static_kwargs : dict
-        Keyword arguments for `Templates`
     """
 
     def __init__(self, templates_array_moved=None, displacements=None, **static_kwargs):
@@ -206,10 +152,6 @@ class DriftingTemplates(Templates):
             sampling_frequency=templates.sampling_frequency,
             nbefore=templates.nbefore,
             probe=templates.probe,
-            sparsity_mask=templates.sparsity_mask,
-            is_in_uV=templates.is_in_uV,
-            unit_ids=templates.unit_ids,
-            channel_ids=templates.channel_ids,
         )
         return drifting_templates
 
@@ -343,7 +285,7 @@ class InjectDriftingTemplatesRecording(BaseRecording):
     drifting_templates : DriftingTemplates
         The drifting template object
     displacement_vectors : list of numpy array
-        The length of the list is the number of segment.
+        The lenght of the list is the number of segment.
         Per segment, the drift vector is a numpy array with shape (num_times, 2, num_motions)
         num_motions is generally = 1 but can be > 1 in case of combining several drift vectors
     displacement_sampling_frequency : float
@@ -364,8 +306,6 @@ class InjectDriftingTemplatesRecording(BaseRecording):
         If None, no amplitude scaling is applied.
         If scalar all spikes have the same factor (certainly useless).
         If vector, it must have the same size as the spike vector.
-    mode : str, default: "precompute"
-        Mode for how to compute templates.
 
     Returns
     -------
@@ -379,15 +319,15 @@ class InjectDriftingTemplatesRecording(BaseRecording):
         drifting_templates: DriftingTemplates,
         displacement_vectors: list[np.ndarray],
         displacement_sampling_frequency: float,
-        displacement_unit_factor: np.ndarray | None = None,
-        parent_recording: BaseRecording | None = None,
-        num_samples: list[int] | None = None,
+        displacement_unit_factor: Optional[np.ndarray] = None,
+        parent_recording: Optional[BaseRecording] = None,
+        num_samples: Optional[list[int]] = None,
         amplitude_factor: list[np.ndarray] | np.ndarray | float | None = None,
         mode="precompute",
         # TODO handle upsample vector
-        # upsample_vector: list[int] | None = None,
+        # upsample_vector: Union[list[int], None] = None,
     ):
-        from scipy.spatial import distance
+        import scipy.spatial
 
         assert isinstance(
             drifting_templates, DriftingTemplates
@@ -466,7 +406,7 @@ class InjectDriftingTemplatesRecording(BaseRecording):
             ), "drifting_templates must have precomputed displacements"
             displacements = drifting_templates.displacements
 
-            # compute the displacement indices
+            # compute the displacement indicies
             segment_slices = []
             displacement_indices = np.zeros(self.spike_vector.size, dtype="int64")
             for segment_index in range(sorting.get_num_segments()):
@@ -490,7 +430,7 @@ class InjectDriftingTemplatesRecording(BaseRecording):
 
                 # we go to indices by the nearest precomputed displacements
                 # this is (num_spike, ) relate to indices
-                inds = np.argmin(distance.cdist(displacements, summed_displacement), axis=0)
+                inds = np.argmin(scipy.spatial.distance.cdist(displacements, summed_displacement), axis=0)
                 # just by paranoia
                 inds = np.clip(inds, 0, displacements.shape[0] - 1)
                 # this also cast to int64
@@ -505,7 +445,9 @@ class InjectDriftingTemplatesRecording(BaseRecording):
             amplitude_vec = amplitude_vector[start:end] if amplitude_vector is not None else None
             # upsample_vec = upsample_vector[start:end] if upsample_vector is not None else None
 
-            parent_recording_segment = None if parent_recording is None else parent_recording.segments[segment_index]
+            parent_recording_segment = (
+                None if parent_recording is None else parent_recording._recording_segments[segment_index]
+            )
             recording_segment = InjectDriftingTemplatesRecordingSegment(
                 self.dtype,
                 self.spike_vector[start:end],
@@ -519,7 +461,7 @@ class InjectDriftingTemplatesRecording(BaseRecording):
             )
             self.add_recording_segment(recording_segment)
 
-        self.set_probe(drifting_templates.probe)
+        self.set_probe(drifting_templates.probe, in_place=True)
 
         # templates are too large, we don't serialize them to JSON
         self._serializability["json"] = False
@@ -545,17 +487,17 @@ class InjectDriftingTemplatesRecordingSegment(BaseRecordingSegment):
         dtype,
         spike_vector: np.ndarray,
         drifting_templates: DriftingTemplates,
-        amplitude_vector: np.ndarray | None = None,
-        parent_recording_segment: BaseRecordingSegment | None = None,
-        num_samples: int | None = None,
-        displacement_indices: np.ndarray | None = None,
-        templates_array_moved: np.ndarray | None = None,
-        # upsample_vector: list |float | None,
+        amplitude_vector: Optional[np.ndarray] = None,
+        parent_recording_segment: Optional[BaseRecordingSegment] = None,
+        num_samples: Optional[int] = None,
+        displacement_indices: Optional[np.ndarray] = None,
+        templates_array_moved: Optional[np.ndarray] = None,
+        # upsample_vector: Union[list[float], None],
     ) -> None:
         BaseRecordingSegment.__init__(
             self,
             drifting_templates.sampling_frequency,
-            t_start=0 if parent_recording_segment is None else parent_recording_segment._t_start,
+            t_start=0 if parent_recording_segment is None else parent_recording_segment.t_start,
         )
         assert not (parent_recording_segment is None and num_samples is None)
 
@@ -576,17 +518,17 @@ class InjectDriftingTemplatesRecordingSegment(BaseRecordingSegment):
 
     def get_traces(
         self,
-        start_frame: int | None = None,
-        end_frame: int | None = None,
-        channel_indices: list | None = None,
+        start_frame: Optional[int] = None,
+        end_frame: Optional[int] = None,
+        channel_indices: Optional[list] = None,
     ) -> np.ndarray:
         start_frame = 0 if start_frame is None else start_frame
         end_frame = self.num_samples if end_frame is None else end_frame
 
         if channel_indices is None:
-            n_channels = self.get_num_channels()
+            n_channels = self.drifting_templates.num_channels
         elif isinstance(channel_indices, slice):
-            stop = channel_indices.stop if channel_indices.stop is not None else self.get_num_channels()
+            stop = channel_indices.stop if channel_indices.stop is not None else self.drifting_templates.num_channels
             start = channel_indices.start if channel_indices.start is not None else 0
             step = channel_indices.step if channel_indices.step is not None else 1
             n_channels = math.ceil((stop - start) / step)

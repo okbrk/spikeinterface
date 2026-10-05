@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +42,7 @@ def read_bids(folder_path):
             rec.annotate(bids_name=bids_name)
             rec.extra_requirements.extend("pandas")
             probegroup = _read_probe_group(file_path.parent, bids_name, rec.channel_ids)
-            rec.set_probegroup(probegroup)
+            rec = rec.set_probegroup(probegroup)
             recordings.append(rec)
 
         elif file_path.suffix == ".nix":
@@ -54,7 +56,7 @@ def read_bids(folder_path):
                 rec = read_nix(file_path, stream_id=stream_id)
                 rec.extra_requirements.extend("pandas")
                 probegroup = _read_probe_group(file_path.parent, bids_name, rec.channel_ids)
-                rec.set_probegroup(probegroup)
+                rec = rec.set_probegroup(probegroup)
                 recordings.append(rec)
 
     return recordings

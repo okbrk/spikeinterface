@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import numpy as np
 
 from .base import BaseWidget, to_attr
 from .utils import get_unit_colors
 
-from spikeinterface.core import ChannelSparsity
+from ..core import ChannelSparsity, get_template_extremum_channel
 
 
 class UnitWaveformDensityMapWidget(BaseWidget):
@@ -23,9 +25,11 @@ class UnitWaveformDensityMapWidget(BaseWidget):
         If SortingAnalyzer is already sparse, the argument is ignored
     use_max_channel : bool, default: False
         Use only the max channel
-    unit_colors : dict | None, default: None
-        Dict of colors with unit ids as keys and colors as values. Colors can be any type accepted
-        by matplotlib. If None, default colors are chosen using the `get_some_colors` function.
+    peak_sign : "neg" | "pos" | "both", default: "neg"
+        Used to detect max channel only when use_max_channel=True
+    unit_colors : None or dict, default: None
+        A dict key is unit_id and value is any color format handled by matplotlib.
+        If None, then the get_unit_colors() is internally used
     same_axis : bool, default: False
         If True then all density are plot on the same axis and then channels is the union
         all channel per units
@@ -39,6 +43,7 @@ class UnitWaveformDensityMapWidget(BaseWidget):
         sparsity=None,
         same_axis=False,
         use_max_channel=False,
+        peak_sign="neg",
         unit_colors=None,
         backend=None,
         **backend_kwargs,
@@ -56,7 +61,9 @@ class UnitWaveformDensityMapWidget(BaseWidget):
 
         if use_max_channel:
             assert len(unit_ids) == 1, " UnitWaveformDensity : use_max_channel=True works only with one unit"
-            max_channels = sorting_analyzer.get_main_channels(outputs="index", with_dict=True)
+            max_channels = get_template_extremum_channel(
+                sorting_analyzer, mode="extremum", peak_sign=peak_sign, outputs="index"
+            )
 
         # sparsity is done on all the units even if unit_ids is a few ones because some backends need them all
         if sorting_analyzer.is_sparse():
@@ -76,8 +83,8 @@ class UnitWaveformDensityMapWidget(BaseWidget):
         templates = ext_templates.get_templates(unit_ids=unit_ids)
         bin_min = np.min(templates) * 1.3
         bin_max = np.max(templates) * 1.3
-        num_bins = 100
-        bins = np.linspace(bin_min, bin_max, num_bins + 1)
+        bin_size = (bin_max - bin_min) / 100
+        bins = np.arange(bin_min, bin_max, bin_size)
 
         # 2d histograms
         if same_axis:
@@ -114,9 +121,14 @@ class UnitWaveformDensityMapWidget(BaseWidget):
                 wfs = wfs_
 
             # make histogram density
-            wfs_flat = wfs.swapaxes(1, 2).reshape(wfs.shape[0], -1)  # num_spikes x (num_channels * timepoints)
-            hists_per_timepoint = [np.histogram(one_timepoint, bins=bins)[0] for one_timepoint in wfs_flat.T]
-            hist2d = np.stack(hists_per_timepoint)
+            wfs_flat = wfs.swapaxes(1, 2).reshape(wfs.shape[0], -1)
+            hist2d = np.zeros((wfs_flat.shape[1], bins.size))
+            indexes0 = np.arange(wfs_flat.shape[1])
+
+            wf_bined = np.floor((wfs_flat - bin_min) / bin_size).astype("int32")
+            wf_bined = wf_bined.clip(0, bins.size - 1)
+            for d in wf_bined:
+                hist2d[indexes0, d] += 1
 
             if same_axis:
                 if all_hist2d is None:
@@ -150,7 +162,6 @@ class UnitWaveformDensityMapWidget(BaseWidget):
             bin_min=bin_min,
             bin_max=bin_max,
             all_hist2d=all_hist2d,
-            sampling_frequency=sorting_analyzer.sampling_frequency,
             templates_flat=templates_flat,
             template_width=wfs.shape[1],
         )
@@ -158,45 +169,53 @@ class UnitWaveformDensityMapWidget(BaseWidget):
         BaseWidget.__init__(self, plot_data, backend=backend, **backend_kwargs)
 
     def plot_matplotlib(self, data_plot, **backend_kwargs):
+        import matplotlib.pyplot as plt
         from .utils_matplotlib import make_mpl_figure
 
         dp = to_attr(data_plot)
 
-        if backend_kwargs["axes"] is None and backend_kwargs["ax"] is None:
+        if backend_kwargs["axes"] is not None or backend_kwargs["ax"] is not None:
+            self.figure, self.axes, self.ax = make_mpl_figure(**backend_kwargs)
+        else:
+            if dp.same_axis:
+                num_axes = 1
+            else:
+                num_axes = len(dp.unit_ids)
             backend_kwargs["ncols"] = 1
-            backend_kwargs["num_axes"] = 1 if dp.same_axis else len(dp.unit_ids)
-        self.figure, self.axes, self.ax = make_mpl_figure(**backend_kwargs)
+            backend_kwargs["num_axes"] = num_axes
+            self.figure, self.axes, self.ax = make_mpl_figure(**backend_kwargs)
 
-        freq_khz = dp.sampling_frequency / 1000  # samples / msec
         if dp.same_axis:
+            ax = self.ax
             hist2d = dp.all_hist2d
-            x_max = len(hist2d) / freq_khz  # in milliseconds
-            self.ax.imshow(
+            im = ax.imshow(
                 hist2d.T,
                 interpolation="nearest",
                 origin="lower",
                 aspect="auto",
-                extent=(0, x_max, dp.bin_min, dp.bin_max),
-                cmap="Grays",
+                extent=(0, hist2d.shape[0], dp.bin_min, dp.bin_max),
+                cmap="hot",
             )
         else:
-            for ax, unit_id in zip(self.axes.flatten(), dp.unit_ids):
+            for unit_index, unit_id in enumerate(dp.unit_ids):
                 hist2d = dp.all_hist2d[unit_id]
-                x_max = len(hist2d) / freq_khz  # in milliseconds
-                ax.imshow(
+                ax = self.axes.flatten()[unit_index]
+                im = ax.imshow(
                     hist2d.T,
                     interpolation="nearest",
                     origin="lower",
                     aspect="auto",
-                    extent=(0, x_max, dp.bin_min, dp.bin_max),
-                    cmap="Grays",
+                    extent=(0, hist2d.shape[0], dp.bin_min, dp.bin_max),
+                    cmap="hot",
                 )
 
         for unit_index, unit_id in enumerate(dp.unit_ids):
-            ax = self.ax if dp.same_axis else self.axes.flatten()[unit_index]
+            if dp.same_axis:
+                ax = self.ax
+            else:
+                ax = self.axes.flatten()[unit_index]
             color = dp.unit_colors[unit_id]
-            x = np.arange(len(dp.templates_flat[unit_id])) / freq_khz
-            ax.plot(x, dp.templates_flat[unit_id], color=color, lw=1)
+            ax.plot(dp.templates_flat[unit_id], color=color, lw=1)
 
         # final cosmetics
         for unit_index, unit_id in enumerate(dp.unit_ids):
@@ -209,11 +228,11 @@ class UnitWaveformDensityMapWidget(BaseWidget):
             chan_inds = dp.channel_inds[unit_id]
             for i, chan_ind in enumerate(chan_inds):
                 if i != 0:
-                    ax.axvline(i * dp.template_width / freq_khz, color="w", lw=3)
+                    ax.axvline(i * dp.template_width, color="w", lw=3)
                 channel_id = dp.channel_ids[chan_ind]
-                x = (i + 0.5) * dp.template_width / freq_khz
+                x = i * dp.template_width + dp.template_width // 2
                 y = (dp.bin_max + dp.bin_min) / 2.0
-                ax.text(x, y, f"{channel_id}", color="k", ha="center", va="center")
+                ax.text(x, y, f"chan_id {channel_id}", color="w", ha="center", va="center")
 
-            ax.set_xlabel("Time [ms]")
+            ax.set_xticks([])
             ax.set_ylabel(f"unit_id {unit_id}")

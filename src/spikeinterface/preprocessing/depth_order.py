@@ -1,5 +1,7 @@
-from spikeinterface.core import order_channels_by_depth, ChannelSliceRecording
-from spikeinterface.core.core_tools import define_function_handling_dict_from_class
+from __future__ import annotations
+
+from ..core import order_channels_by_depth, ChannelSliceRecording
+from ..core.core_tools import define_function_from_class
 
 
 class DepthOrderRecording(ChannelSliceRecording):
@@ -10,7 +12,7 @@ class DepthOrderRecording(ChannelSliceRecording):
 
     Parameters
     ----------
-    recording : BaseRecording
+    parent_recording : BaseRecording
         The recording to re-order.
     channel_ids : list/array or None
         If given, a subset of channels to order locations for
@@ -23,20 +25,22 @@ class DepthOrderRecording(ChannelSliceRecording):
         If flip is True then the order is upper first.
     """
 
-    def __init__(self, recording, channel_ids=None, dimensions=("x", "y"), flip=False):
-        order_f, order_r = order_channels_by_depth(recording, channel_ids=channel_ids, dimensions=dimensions, flip=flip)
-        reordered_channel_ids = recording.channel_ids[order_f]
+    def __init__(self, parent_recording, channel_ids=None, dimensions=("x", "y"), flip=False):
+        order_f, order_r = order_channels_by_depth(
+            parent_recording, channel_ids=channel_ids, dimensions=dimensions, flip=flip
+        )
+        reordered_channel_ids = parent_recording.channel_ids[order_f]
         ChannelSliceRecording.__init__(
             self,
-            recording,
+            parent_recording,
             channel_ids=reordered_channel_ids,
         )
         self._kwargs = dict(
-            recording=recording,
+            parent_recording=parent_recording,
             channel_ids=channel_ids,
             dimensions=dimensions,
             flip=flip,
         )
 
 
-depth_order = define_function_handling_dict_from_class(source_class=DepthOrderRecording, name="depth_order")
+depth_order = define_function_from_class(source_class=DepthOrderRecording, name="depth_order")

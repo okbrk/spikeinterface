@@ -1,6 +1,8 @@
+from __future__ import annotations
+from typing import Optional
 import numpy as np
 
-from spikeinterface.core import concatenate_recordings, BaseRecording, BaseRecordingSegment
+from ...core import concatenate_recordings, BaseRecording, BaseRecordingSegment
 
 from deepinterpolation.generator_collection import SequentialGenerator
 
@@ -20,8 +22,8 @@ class SpikeInterfaceRecordingGenerator(SequentialGenerator):
         desired_shape: tuple = (192, 2),
         batch_size: int = 100,
         steps_per_epoch: int = 10,
-        start_frame: int | None = None,
-        end_frame: int | None = None,
+        start_frame: Optional[int] = None,
+        end_frame: Optional[int] = None,
         total_samples: int = -1,
     ):
         if not isinstance(recordings, list):

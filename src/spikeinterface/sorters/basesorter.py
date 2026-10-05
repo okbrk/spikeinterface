@@ -2,6 +2,9 @@
 base class for sorters implementation.
 """
 
+from __future__ import annotations
+
+
 import time
 import copy
 from pathlib import Path
@@ -12,12 +15,12 @@ import shutil
 import warnings
 
 
-from spikeinterface.core import load, BaseRecordingSnippets, BaseRecording
+from spikeinterface.core import load_extractor, BaseRecordingSnippets, BaseRecording
 from spikeinterface.core.core_tools import check_json
-from spikeinterface.core.recording_tools import get_rec_attributes
 from spikeinterface.core.globals import get_global_job_kwargs
 from spikeinterface.core.job_tools import fix_job_kwargs, split_job_kwargs
 from .utils import SpikeSortingError, ShellScript
+
 
 default_job_kwargs_description = {
     "n_jobs": "Number of jobs (when saving to binary) - default global",
@@ -106,20 +109,12 @@ class BaseSorter:
             raise ValueError("recording must be a Recording or a Snippets!!")
 
         if cls.requires_locations:
-            if not recording.has_probe():
+            locations = recording.get_channel_locations()
+            if locations is None:
                 raise RuntimeError(
                     "Channel locations are required for this spike sorter. "
                     "Locations can be added to the RecordingExtractor by loading a probe file "
                     "(.prb or .csv) or by setting them manually."
-                )
-            # check uniqueness of locations
-            locations = recording.get_channel_locations()
-            if len(locations) != len(set(map(tuple, locations))):
-                raise RuntimeError(
-                    "Channel locations are not unique! "
-                    "Please ensure that each channel has a unique location before running spike sorting. "
-                    "If you have multiple groups with overlapping channel locations, you can use the "
-                    "``run_sorter_by_property`` function to sort each group separately"
                 )
 
         if output_folder is None:
@@ -150,28 +145,15 @@ class BaseSorter:
         elif recording.check_serializability("pickle"):
             recording.dump(output_folder / "spikeinterface_recording.pickle", relative_to=output_folder)
         else:
-            raise RuntimeError(
-                "This recording is not serializable and so can not be sorted. Consider `recording.save(folder=...)` to save a "
-                "compatible binary file."
-            )
-
-        # save recording attributes in case the recording is not serializable or removed after sorting
-        rec_attributes = get_rec_attributes(recording)
-        rec_attributes_file = output_folder / "recording_attributes.json"
-        rec_attributes_file.write_text(json.dumps(check_json(rec_attributes), indent=4), encoding="utf8")
+            # TODO: deprecate and finally remove this after 0.100
+            d = {"warning": "The recording is not serializable to json"}
+            rec_file.write_text(json.dumps(d, indent=4), encoding="utf8")
 
         return output_folder
 
     @classmethod
-    def _dynamic_params(cls):
-        # optional
-        # can be implemented in subclass for dynamic default parameters
-        return cls._default_params, cls._params_description
-
-    @classmethod
     def default_params(cls):
-        default_params, _ = cls._dynamic_params()
-        p = copy.deepcopy(default_params)
+        p = copy.deepcopy(cls._default_params)
         if cls.requires_binary_data:
             job_kwargs = get_global_job_kwargs()
             p.update(job_kwargs)
@@ -179,8 +161,7 @@ class BaseSorter:
 
     @classmethod
     def params_description(cls):
-        _, default_params_description = cls._dynamic_params()
-        p = copy.deepcopy(default_params_description)
+        p = copy.deepcopy(cls._params_description)
         if cls.requires_binary_data:
             p.update(default_job_kwargs_description)
         return p
@@ -228,9 +209,9 @@ class BaseSorter:
                 )
                 recording = None
             else:
-                recording = load(json_file, base_folder=output_folder)
+                recording = load_extractor(json_file, base_folder=output_folder)
         elif pickle_file.exists():
-            recording = load(pickle_file, base_folder=output_folder)
+            recording = load_extractor(pickle_file, base_folder=output_folder)
 
         return recording
 

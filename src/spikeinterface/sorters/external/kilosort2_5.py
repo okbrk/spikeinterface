@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 from pathlib import Path
 import os
+from typing import Union
 
-from spikeinterface.sorters.basesorter import BaseSorter
+from ..basesorter import BaseSorter
 from .kilosortbase import KilosortBase
-from spikeinterface.sorters.utils import get_git_commit
+from ..utils import get_git_commit
 
 
-def check_if_installed(kilosort2_5_path: str | None):
+PathType = Union[str, Path]
+
+
+def check_if_installed(kilosort2_5_path: Union[str, None]):
     if kilosort2_5_path is None:
         return False
     assert isinstance(kilosort2_5_path, str)
@@ -28,7 +34,7 @@ class Kilosort2_5Sorter(KilosortBase, BaseSorter):
 
     sorter_name: str = "kilosort2_5"
     compiled_name: str = "ks2_5_compiled"
-    kilosort2_5_path: str | None = os.getenv("KILOSORT2_5_PATH", None)
+    kilosort2_5_path: Union[str, None] = os.getenv("KILOSORT2_5_PATH", None)
     requires_locations = False
 
     _default_params = {
@@ -129,7 +135,7 @@ class Kilosort2_5Sorter(KilosortBase, BaseSorter):
             return "git-" + commit
 
     @staticmethod
-    def set_kilosort2_5_path(kilosort2_5_path: str | Path):
+    def set_kilosort2_5_path(kilosort2_5_path: PathType):
         kilosort2_5_path = str(Path(kilosort2_5_path).absolute())
         Kilosort2_5Sorter.kilosort2_5_path = kilosort2_5_path
         try:
@@ -152,7 +158,7 @@ class Kilosort2_5Sorter(KilosortBase, BaseSorter):
         return p
 
     @classmethod
-    def _get_specific_options(cls, ops, params) -> dict:
+    def _get_specific_options(cls, ops, params):
         """
         Adds specific options for Kilosort2_5 in the ops dict and returns the final dict
 

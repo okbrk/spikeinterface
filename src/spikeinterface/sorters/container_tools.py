@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 from pathlib import Path
 import platform
 import os
 import random
 import string
-import warnings
 
 # TODO move this inside functions
 
@@ -98,13 +99,13 @@ class ContainerClient:
                 singularity_image = sif_file
             else:
 
-                docker_image = Client.load("docker://" + container_image)
+                docker_image = self._get_docker_image(container_image)
                 if docker_image and len(docker_image.tags) > 0:
                     tag = docker_image.tags[0]
-                    warnings.warn(f"Building singularity image from local docker image: {tag}")
+                    print(f"Building singularity image from local docker image: {tag}")
                     singularity_image = Client.build(f"docker-daemon://{tag}", sif_file, sudo=False)
                 if not singularity_image:
-                    warnings.warn(f"Singularity: pulling image {container_image}")
+                    print(f"Singularity: pulling image {container_image}")
                     singularity_image = Client.pull(f"docker://{container_image}")
 
             if not Path(singularity_image).exists():
@@ -174,7 +175,7 @@ def install_package_in_container(
     Install a package in a container with different modes:
 
     * pypi: pip install package_name
-    * github: pip install "package_name @ {github_url}/archive/{tag/version}.tar.gz"
+    * github: pip install {github_url}/archive/{tag/version}.tar.gz#egg=package_name
     * folder: pip install folder
 
     Parameters
@@ -235,17 +236,9 @@ def install_package_in_container(
         if github_url is None:
             github_url = "https://github.com/SpikeInterface/spikeinterface"
 
-        pkg = package_name
+        cmd = f"pip install --user --upgrade --no-input {github_url}/archive/{tag_or_version}.tar.gz#egg={package_name}"
         if extra is not None:
-            pkg += extra
-        cmd = [
-            "pip",
-            "install",
-            "--user",
-            "--upgrade",
-            "--no-input",
-            f"{pkg} @ {github_url}/archive/{tag_or_version}.tar.gz",
-        ]
+            cmd += f"{extra}"
         res_output = container_client.run_command(cmd)
 
     elif installation_mode == "folder":
@@ -269,10 +262,8 @@ def install_package_in_container(
         if extra is not None:
             cmd += f"{extra}"
         res_output = container_client.run_command(cmd)
+
     else:
         raise ValueError(f"install_package_incontainer, wrong installation_mode={installation_mode}")
-
-    if isinstance(res_output, str) and "ERROR" in res_output.upper():
-        warnings.warn(f"pip install of {package_name} in container may have failed. " f"pip output:\n{res_output}")
 
     return res_output

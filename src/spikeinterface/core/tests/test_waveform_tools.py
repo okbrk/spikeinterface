@@ -5,7 +5,7 @@ import platform
 
 import numpy as np
 
-from spikeinterface.core import generate_recording, generate_sorting, generate_ground_truth_recording, ms_to_samples
+from spikeinterface.core import generate_recording, generate_sorting, generate_ground_truth_recording
 from spikeinterface.core.waveform_tools import (
     extract_waveforms_to_buffers,
     extract_waveforms_to_single_buffer,
@@ -56,11 +56,11 @@ def test_waveform_tools(create_cache_folder):
     recording, sorting = get_dataset()
     sampling_frequency = recording.sampling_frequency
 
-    nbefore = ms_to_samples(3.0, sampling_frequency)
-    nafter = ms_to_samples(4.0, sampling_frequency)
+    nbefore = int(3.0 * sampling_frequency / 1000.0)
+    nafter = int(4.0 * sampling_frequency / 1000.0)
 
     dtype = recording.get_dtype()
-    # return_in_uV = False
+    # return_scaled = False
 
     spikes = sorting.to_spike_vector()
 
@@ -113,7 +113,7 @@ def test_waveform_tools(create_cache_folder):
                     unit_ids,
                     nbefore,
                     nafter,
-                    return_in_uV=False,
+                    return_scaled=False,
                     dtype=dtype,
                     copy=True,
                     **sparsity_kwargs,
@@ -139,7 +139,7 @@ def test_waveform_tools(create_cache_folder):
                     unit_ids,
                     nbefore,
                     nafter,
-                    return_in_uV=False,
+                    return_scaled=False,
                     dtype=dtype,
                     copy=True,
                     **sparsity_kwargs,
@@ -164,8 +164,8 @@ def test_estimate_templates_with_accumulator():
     ms_before = 1.0
     ms_after = 1.5
 
-    nbefore = ms_to_samples(ms_before, recording.sampling_frequency)
-    nafter = ms_to_samples(ms_after, recording.sampling_frequency)
+    nbefore = int(ms_before * recording.sampling_frequency / 1000.0)
+    nafter = int(ms_after * recording.sampling_frequency / 1000.0)
 
     spikes = sorting.to_spike_vector()
     # take one spikes every 10
@@ -173,43 +173,21 @@ def test_estimate_templates_with_accumulator():
 
     job_kwargs = dict(n_jobs=2, progress_bar=True, chunk_duration="1s")
 
-    # here we compare the result with the same mechanism with with several worker pool size
-    # this means that that acumulator are splitted and then agglomerated back
-    # this should lead to very small diff
-    # n_jobs=1 is done in loop
-    templates_by_worker = []
+    templates = estimate_templates_with_accumulator(
+        recording, spikes, sorting.unit_ids, nbefore, nafter, return_scaled=True, **job_kwargs
+    )
+    print(templates.shape)
+    assert templates.shape[0] == sorting.unit_ids.size
+    assert templates.shape[1] == nbefore + nafter
+    assert templates.shape[2] == recording.get_num_channels()
 
-    if platform.system() == "Linux":
-        engine_loop = ["thread", "process"]
-    else:
-        engine_loop = ["thread"]
+    assert np.any(templates != 0)
 
-    for pool_engine in engine_loop:
-        for n_jobs in (1, 2, 8):
-            job_kwargs = dict(pool_engine=pool_engine, n_jobs=n_jobs, progress_bar=True, chunk_duration="1s")
-            templates = estimate_templates_with_accumulator(
-                recording, spikes, sorting.unit_ids, nbefore, nafter, return_in_uV=True, **job_kwargs
-            )
-            assert templates.shape[0] == sorting.unit_ids.size
-            assert templates.shape[1] == nbefore + nafter
-            assert templates.shape[2] == recording.get_num_channels()
-            assert np.any(templates != 0)
-
-            templates_by_worker.append(templates)
-            if len(templates_by_worker) > 1:
-                templates_loop = templates_by_worker[0]
-                np.testing.assert_almost_equal(templates, templates_loop, decimal=4)
-
-                # import matplotlib.pyplot as plt
-                # fig, axs = plt.subplots(nrows=2, sharex=True)
-                # for unit_index, unit_id in enumerate(sorting.unit_ids):
-                #     ax = axs[0]
-                #     ax.set_title(f"{pool_engine} {n_jobs}")
-                #     ax.plot(templates[unit_index, :, :].T.flatten())
-                #     ax.plot(templates_loop[unit_index, :, :].T.flatten(), color="k", ls="--")
-                #     ax = axs[1]
-                #     ax.plot((templates - templates_loop)[unit_index, :, :].T.flatten(), color="k", ls="--")
-                # plt.show()
+    # import matplotlib.pyplot as plt
+    # fig, ax = plt.subplots()
+    # for unit_index, unit_id in enumerate(sorting.unit_ids):
+    #     ax.plot(templates[unit_index, :, :].T.flatten())
+    # plt.show()
 
 
 def test_estimate_templates():
@@ -218,8 +196,8 @@ def test_estimate_templates():
     ms_before = 1.0
     ms_after = 1.5
 
-    nbefore = ms_to_samples(ms_before, recording.sampling_frequency)
-    nafter = ms_to_samples(ms_after, recording.sampling_frequency)
+    nbefore = int(ms_before * recording.sampling_frequency / 1000.0)
+    nafter = int(ms_after * recording.sampling_frequency / 1000.0)
 
     spikes = sorting.to_spike_vector()
     # take one spikes every 10
@@ -227,36 +205,16 @@ def test_estimate_templates():
 
     job_kwargs = dict(n_jobs=2, progress_bar=True, chunk_duration="1s")
 
-    # mask with differents sparsity
-    sparsity_mask = np.ones((sorting.unit_ids.size, recording.channel_ids.size), dtype=bool)
-    sparsity_mask[:4, : recording.channel_ids.size // 2 - 1] = False
-    sparsity_mask[4:, recording.channel_ids.size // 2 :] = False
-
     for operator in ("average", "median"):
-        templates_array = estimate_templates(
-            recording, spikes, sorting.unit_ids, nbefore, nafter, operator=operator, return_in_uV=True, **job_kwargs
+        templates = estimate_templates(
+            recording, spikes, sorting.unit_ids, nbefore, nafter, operator=operator, return_scaled=True, **job_kwargs
         )
         # print(templates.shape)
-        assert templates_array.shape[0] == sorting.unit_ids.size
-        assert templates_array.shape[1] == nbefore + nafter
-        assert templates_array.shape[2] == recording.get_num_channels()
+        assert templates.shape[0] == sorting.unit_ids.size
+        assert templates.shape[1] == nbefore + nafter
+        assert templates.shape[2] == recording.get_num_channels()
 
-        assert np.any(templates_array != 0)
-
-        sparse_templates_array = estimate_templates(
-            recording,
-            spikes,
-            sorting.unit_ids,
-            nbefore,
-            nafter,
-            operator=operator,
-            return_in_uV=True,
-            sparsity_mask=sparsity_mask,
-            **job_kwargs,
-        )
-        n_chan = np.max(np.sum(sparsity_mask, axis=1))
-        assert n_chan == sparse_templates_array.shape[2]
-        assert np.any(sparse_templates_array == 0)
+        assert np.any(templates != 0)
 
     #     import matplotlib.pyplot as plt
     #     fig, ax = plt.subplots()
@@ -267,7 +225,6 @@ def test_estimate_templates():
 
 
 if __name__ == "__main__":
-    cache_folder = Path(__file__).resolve().parents[4] / "cache_folder" / "core"
-    test_waveform_tools(cache_folder)
-    # test_estimate_templates_with_accumulator()
-    # test_estimate_templates()
+    test_waveform_tools()
+    test_estimate_templates_with_accumulator()
+    test_estimate_templates()

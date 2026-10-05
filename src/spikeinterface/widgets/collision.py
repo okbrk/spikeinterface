@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 
 from .base import BaseWidget, to_attr
@@ -5,13 +7,13 @@ from .base import BaseWidget, to_attr
 
 class ComparisonCollisionBySimilarityWidget(BaseWidget):
     """
-    Plots CollisionGTComparison pair by pair ordered by cosine_similarity
+    Plots CollisionGTComparison pair by pair orderer by cosine_similarity
 
     Parameters
     ----------
     comp : CollisionGTComparison
         The collision ground truth comparison object
-    templates_array : array
+    templates : array
         template of units
     mode : "heatmap" or "lines"
         to see collision curves for every pairs ("heatmap") or as lines averaged over pairs.
@@ -33,9 +35,11 @@ class ComparisonCollisionBySimilarityWidget(BaseWidget):
     def __init__(
         self,
         comp,
-        templates_array,
+        templates,
         unit_ids=None,
         metric="cosine_similarity",
+        figure=None,
+        ax=None,
         mode="heatmap",
         similarity_bins=np.linspace(-0.4, 1, 8),
         cmap="winter",
@@ -51,7 +55,7 @@ class ComparisonCollisionBySimilarityWidget(BaseWidget):
 
         data_plot = dict(
             comp=comp,
-            templates_array=templates_array,
+            templates=templates,
             unit_ids=unit_ids,
             metric=metric,
             mode=mode,
@@ -72,8 +76,6 @@ class ComparisonCollisionBySimilarityWidget(BaseWidget):
 
         from .utils_matplotlib import make_mpl_figure
 
-        from spikeinterface.postprocessing.template_similarity import compute_similarity_with_templates_array
-
         dp = to_attr(data_plot)
 
         # self.make_mpl_figure(**backend_kwargs)
@@ -86,23 +88,12 @@ class ComparisonCollisionBySimilarityWidget(BaseWidget):
         all_unit_ids = list(comp.sorting1.get_unit_ids())
         template_inds = [all_unit_ids.index(u) for u in dp.unit_ids]
 
-        templates_array = dp.templates_array[template_inds, :, :].copy()
-        flat_templates = templates_array.reshape(templates_array.shape[0], -1)
-
-        similarity_matrix, _ = compute_similarity_with_templates_array(
-            templates_array,
-            templates_array,
-            method=dp.metric,
-            num_shifts=0,
-            support="union",
-            sparsity=None,
-            other_sparsity=None,
-        )
-
-        # if dp.metric == "cosine_similarity":
-        #     similarity_matrix = sklearn.metrics.pairwise.cosine_similarity(flat_templates)
-        # else:
-        #     raise NotImplementedError("metric=...")
+        templates = dp.templates[template_inds, :, :].copy()
+        flat_templates = templates.reshape(templates.shape[0], -1)
+        if dp.metric == "cosine_similarity":
+            similarity_matrix = sklearn.metrics.pairwise.cosine_similarity(flat_templates)
+        else:
+            raise NotImplementedError("metric=...")
 
         fs = comp.sorting1.get_sampling_frequency()
         lags = comp.bins / fs * 1000
@@ -184,7 +175,7 @@ class ComparisonCollisionBySimilarityWidget(BaseWidget):
 
 class StudyComparisonCollisionBySimilarityWidget(BaseWidget):
     """
-    Plots CollisionGTComparison pair by pair ordered by cosine_similarity for all
+    Plots CollisionGTComparison pair by pair orderer by cosine_similarity for all
     cases in a study.
 
     Parameters

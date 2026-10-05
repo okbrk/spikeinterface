@@ -1,3 +1,5 @@
+from __future__ import annotations
+import numpy as np
 from .job_tools import fix_job_kwargs
 from .waveform_tools import extract_waveforms_to_buffers
 from .numpyextractors import NumpySnippets
@@ -44,7 +46,7 @@ def snippets_from_sorting(recording, sorting, nbefore=20, nafter=44, wf_folder=N
         nbefore,
         nafter,
         mode=mode,
-        return_in_uV=False,
+        return_scaled=False,
         folder=folder,
         dtype=recording.get_dtype(),
         sparsity_mask=None,

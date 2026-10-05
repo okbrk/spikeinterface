@@ -2,6 +2,8 @@
 Some simple function to retrieve public datasets with datalad
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from .globals import get_global_dataset_folder

@@ -1,14 +1,16 @@
 import unittest
+import pytest
 import os
-import importlib.util
 
 import numpy as np
 
 if __name__ != "__main__":
-    if importlib.util.find_spec("matplotlib") is not None:
+    try:
         import matplotlib
 
         matplotlib.use("Agg")
+    except:
+        pass
 
 
 from spikeinterface import (
@@ -17,23 +19,15 @@ from spikeinterface import (
     create_sorting_analyzer,
 )
 
+
 import spikeinterface.widgets as sw
 import spikeinterface.comparison as sc
 from spikeinterface.preprocessing import scale, correct_motion
 
-HAVE_SORTINGVIEW = importlib.util.find_spec("sortingview") is not None
-HAVE_FIGPACK = (
-    importlib.util.find_spec("figpack") is not None and importlib.util.find_spec("figpack_spike_sorting") is not None
-)
 
 ON_GITHUB = bool(os.getenv("GITHUB_ACTIONS"))
 KACHERY_CLOUD_SET = bool(os.getenv("KACHERY_CLOUD_CLIENT_ID")) and bool(os.getenv("KACHERY_CLOUD_PRIVATE_KEY"))
-SKIP_SORTINGVIEW = bool(os.getenv("SKIP_SORTINGVIEW")) or not HAVE_SORTINGVIEW
-SKIP_FIGPACK = bool(os.getenv("SKIP_FIGPACK")) or not HAVE_FIGPACK
-FIGPACK_UPLOAD = bool(os.getenv("FIGPACK_API_KEY"))
-
-
-os.environ["FIGPACK_UPLOAD"] = "1" if FIGPACK_UPLOAD else "0"
+SKIP_SORTINGVIEW = bool(os.getenv("SKIP_SORTINGVIEW"))
 
 
 class TestWidgets(unittest.TestCase):
@@ -77,21 +71,12 @@ class TestWidgets(unittest.TestCase):
             templates=dict(),
             noise_levels=dict(),
             spike_amplitudes=dict(),
-            amplitude_scalings=dict(max_dense_channels=None),  # required by valid unit periods
             unit_locations=dict(),
             spike_locations=dict(),
-            quality_metrics=dict(
-                metric_names=["snr", "isi_violation", "num_spikes", "firing_rate", "amplitude_cutoff"]
-            ),
+            quality_metrics=dict(metric_names=["snr", "isi_violation", "num_spikes"]),
             template_metrics=dict(),
             correlograms=dict(),
             template_similarity=dict(),
-            valid_unit_periods=dict(
-                period_mode="relative",
-                period_target_num_spikes=200,
-                relative_margin_size=0.5,
-                min_num_periods_relative=5,
-            ),
         )
         job_kwargs = dict(n_jobs=-1)
 
@@ -120,29 +105,26 @@ class TestWidgets(unittest.TestCase):
 
         if (ON_GITHUB and not KACHERY_CLOUD_SET) or (SKIP_SORTINGVIEW):
             cls.skip_backends.append("sortingview")
-        if SKIP_FIGPACK:
-            cls.skip_backends.append("figpack")
 
         print(f"Widgets tests: skipping backends - {cls.skip_backends}")
 
         cls.backend_kwargs = {
             "matplotlib": {},
-            "figpack": {"display": False},
+            "sortingview": {},
             "ipywidgets": {"display": False},
             "spikeinterface_gui": {},
-            "sortingview": {},
         }
 
         cls.gt_comp = sc.compare_sorter_to_ground_truth(cls.sorting, cls.sorting)
 
         from spikeinterface.sortingcomponents.peak_detection import detect_peaks
 
-        cls.peaks = detect_peaks(cls.recording, method="locally_exclusive", job_kwargs=job_kwargs)
+        cls.peaks = detect_peaks(cls.recording, method="locally_exclusive", **job_kwargs)
 
     def test_plot_traces(self):
         possible_backends = list(sw.TracesWidget.get_possible_backends())
         for backend in possible_backends:
-            if ON_GITHUB and backend in ("sortingview", "figpack"):
+            if ON_GITHUB and backend == "sortingview":
                 continue
             if backend not in self.skip_backends:
                 sw.plot_traces(
@@ -157,7 +139,7 @@ class TestWidgets(unittest.TestCase):
                     **self.backend_kwargs[backend],
                 )
 
-                if backend not in ("sortingview", "figpack"):
+                if backend != "sortingview":
                     sw.plot_traces(self.recording, mode="auto", backend=backend, **self.backend_kwargs[backend])
                     sw.plot_traces(
                         self.recording,
@@ -314,7 +296,7 @@ class TestWidgets(unittest.TestCase):
                         backend=backend,
                         **self.backend_kwargs[backend],
                     )
-                if backend not in ("sortingview", "figpack"):
+                if backend != "sortingview":
                     sw.plot_unit_templates(
                         self.sorting_analyzer_sparse,
                         unit_ids=unit_ids,
@@ -496,30 +478,6 @@ class TestWidgets(unittest.TestCase):
                     self.sorting_analyzer_sparse, with_channel_ids=True, backend=backend, **self.backend_kwargs[backend]
                 )
 
-    def test_plot_locations(self):
-        possible_backends = list(sw.LocationsWidget.get_possible_backends())
-        for backend in possible_backends:
-            if backend not in self.skip_backends:
-                sw.plot_locations(self.sorting_analyzer_dense, backend=backend, **self.backend_kwargs[backend])
-                unit_ids = self.sorting_analyzer_dense.unit_ids[:4]
-                sw.plot_locations(
-                    self.sorting_analyzer_dense, unit_ids=unit_ids, backend=backend, **self.backend_kwargs[backend]
-                )
-                sw.plot_locations(
-                    self.sorting_analyzer_dense,
-                    unit_ids=unit_ids,
-                    plot_histograms=True,
-                    backend=backend,
-                    **self.backend_kwargs[backend],
-                )
-                sw.plot_locations(
-                    self.sorting_analyzer_sparse,
-                    unit_ids=unit_ids,
-                    plot_histograms=True,
-                    backend=backend,
-                    **self.backend_kwargs[backend],
-                )
-
     def test_plot_similarity(self):
         possible_backends = list(sw.TemplateSimilarityWidget.get_possible_backends())
         for backend in possible_backends:
@@ -573,40 +531,14 @@ class TestWidgets(unittest.TestCase):
         possible_backends = list(sw.SortingSummaryWidget.get_possible_backends())
         for backend in possible_backends:
             if backend not in self.skip_backends:
-                sw.plot_sorting_summary(
-                    self.sorting_analyzer_dense,
-                    displayed_unit_properties=[],
-                    backend=backend,
-                    **self.backend_kwargs[backend],
-                )
-                sw.plot_sorting_summary(
-                    self.sorting_analyzer_sparse,
-                    displayed_unit_properties=[],
-                    backend=backend,
-                    **self.backend_kwargs[backend],
-                )
+                sw.plot_sorting_summary(self.sorting_analyzer_dense, backend=backend, **self.backend_kwargs[backend])
+                sw.plot_sorting_summary(self.sorting_analyzer_sparse, backend=backend, **self.backend_kwargs[backend])
                 sw.plot_sorting_summary(
                     self.sorting_analyzer_sparse,
                     sparsity=self.sparsity_strict,
-                    displayed_unit_properties=[],
                     backend=backend,
                     **self.backend_kwargs[backend],
                 )
-                # select unit_properties
-                sw.plot_sorting_summary(
-                    self.sorting_analyzer_sparse,
-                    displayed_unit_properties=["firing_rate", "snr"],
-                    backend=backend,
-                    **self.backend_kwargs[backend],
-                )
-                # adding a missing property should raise a warning
-                with self.assertWarns(UserWarning):
-                    sw.plot_sorting_summary(
-                        self.sorting_analyzer_sparse,
-                        displayed_unit_properties=["missing_property"],
-                        backend=backend,
-                        **self.backend_kwargs[backend],
-                    )
 
     def test_plot_agreement_matrix(self):
         possible_backends = list(sw.AgreementMatrixWidget.get_possible_backends())
@@ -708,39 +640,6 @@ class TestWidgets(unittest.TestCase):
             if backend not in self.skip_backends:
                 sw.plot_motion_info(motion_info, recording=self.recording, backend=backend)
 
-    def test_plot_valid_unit_periods(self):
-        possible_backends = list(sw.ValidUnitPeriodsWidget.get_possible_backends())
-        for backend in possible_backends:
-            if backend not in self.skip_backends:
-                sw.plot_valid_unit_periods(
-                    self.sorting_analyzer_dense, backend=backend, show_only_units_with_valid_periods=False
-                )
-
-    def test_plot_unit_labels(self):
-        possible_backends = list(sw.WaveformOverlayByLabelWidget.get_possible_backends())
-        for backend in possible_backends:
-            if backend not in self.skip_backends:
-                labels = np.random.choice(["A", "B", "C"], size=self.num_units)
-                sw.plot_unit_labels(
-                    self.sorting_analyzer_dense, unit_labels=labels, backend=backend, **self.backend_kwargs[backend]
-                )
-
-    def test_plot_metric_histograms(self):
-        possible_backends = list(sw.MetricsHistogramsWidget.get_possible_backends())
-        for backend in possible_backends:
-            if backend not in self.skip_backends:
-                thresholds = {"snr": {"greater": 5}, "isi_violation": {"less": 0.5}}
-                sw.plot_metric_histograms(
-                    self.sorting_analyzer_dense, thresholds=thresholds, backend=backend, **self.backend_kwargs[backend]
-                )
-
-    def test_plot_bombcell_labels_upset(self):
-        possible_backends = list(sw.BombcellUpsetPlotWidget.get_possible_backends())
-        for backend in possible_backends:
-            if backend not in self.skip_backends:
-                labels = np.random.choice(["noise", "mua", "good"], size=self.num_units)
-                sw.plot_bombcell_labels_upset(self.sorting_analyzer_dense, unit_labels=labels, backend=backend)
-
 
 if __name__ == "__main__":
     # unittest.main()
@@ -774,9 +673,9 @@ if __name__ == "__main__":
     # mytest.test_plot_unit_presence()
     # mytest.test_plot_peak_activity()
     # mytest.test_plot_multicomparison()
-    mytest.test_plot_sorting_summary()
+    # mytest.test_plot_sorting_summary()
     # mytest.test_plot_motion()
-    # mytest.test_plot_motion_info()
-    # plt.show()
+    mytest.test_plot_motion_info()
+    plt.show()
 
     # TestWidgets.tearDownClass()

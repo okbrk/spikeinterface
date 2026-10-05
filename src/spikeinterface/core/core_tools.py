@@ -1,7 +1,6 @@
-import warnings
+from __future__ import annotations
 from pathlib import Path, WindowsPath
-from collections import namedtuple
-from collections.abc import Generator, Callable
+from typing import Union, Generator
 import os
 import sys
 import datetime
@@ -9,67 +8,12 @@ import json
 from copy import deepcopy
 import importlib
 from math import prod
-import inspect
-from typing import TypeVar, ParamSpec
+from collections import namedtuple
 
-from probeinterface import ProbeGroup
 import numpy as np
-import zarr
 
 
-def define_function_handling_dict_from_class(source_class, name):
-    """
-    Depending on whether `source_class` is passed a `Recording` object or a dict of
-    `Recording` objects, this function will return `source_class` or a dict of
-    `source_class` objects to match the input.
-    """
-
-    from spikeinterface.core import BaseRecording
-
-    def source_class_or_dict_of_sources_classes(*args, **kwargs):
-
-        recording_in_kwargs = False
-        if rec_or_dict_of_recs := kwargs.get("recording"):
-            recording_in_kwargs = True
-        else:
-            rec_or_dict_of_recs = args[0]
-
-        if isinstance(rec_or_dict_of_recs, BaseRecording):
-            return source_class(*args, **kwargs)
-        elif isinstance(rec_or_dict_of_recs, dict):
-            # Edit args & kwargs to pass the dict of recordings but _not_ the original recording
-            new_kwargs = {key: kwarg for key, kwarg in kwargs.items() if key != "recording"}
-            if recording_in_kwargs:
-                new_args = args
-            else:
-                new_args = args[1:]
-
-            preprocessed_recordings_dict = {
-                property_id: source_class(recording, *new_args, **new_kwargs)
-                for property_id, recording in rec_or_dict_of_recs.items()
-            }
-
-            return preprocessed_recordings_dict
-        else:
-            raise TypeError(f"The function `{name}` only accepts a recording or a dict of recordings.")
-
-    source_class_or_dict_of_sources_classes.__signature__ = inspect.signature(source_class)
-    source_class_or_dict_of_sources_classes.__doc__ = source_class.__doc__
-    source_class_or_dict_of_sources_classes.__name__ = name
-    # propagate the _precomputable_kwarg_names attribute from the source class to the wrapper function
-    source_class_or_dict_of_sources_classes._precomputable_kwarg_names = source_class._precomputable_kwarg_names
-
-    return source_class_or_dict_of_sources_classes
-
-
-# Generic typing needed to help propagate typing
-# across multiple language servers
-# see https://github.com/SpikeInterface/spikeinterface/issues/4319
-P = ParamSpec("P")
-T = TypeVar("T")
-
-
-def define_function_from_class(source_class: Callable[P, T], name: str) -> Callable[P, T]:
+def define_function_from_class(source_class, name):
     "Wrapper to change the name of a class"
 
     return source_class
@@ -89,6 +33,7 @@ def read_python(path):
         dictionary containing parsed file
 
     """
+    from six import exec_
     import re
 
     path = Path(path).absolute()
@@ -97,7 +42,7 @@ def read_python(path):
         contents = f.read()
     contents = re.sub(r"range\(([\d,]*)\)", r"list(range(\1))", contents)
     metadata = {}
-    exec(contents, {}, metadata)
+    exec_(contents, {}, metadata)
     metadata = {k.lower(): v for (k, v) in metadata.items()}
     return metadata
 
@@ -130,7 +75,7 @@ class SIJsonEncoder(json.JSONEncoder):
 
     def default(self, obj):
         from spikeinterface.core.base import BaseExtractor
-        from spikeinterface.core.motion import Motion
+        from spikeinterface.sortingcomponents.motion.motion_utils import Motion
 
         # Over-write behaviors for datetime object
         if isinstance(obj, datetime.datetime):
@@ -160,9 +105,6 @@ class SIJsonEncoder(json.JSONEncoder):
         if isinstance(obj, Motion):
             return obj.to_dict()
 
-        if isinstance(obj, ProbeGroup):
-            return obj.to_dict()
-
         # The base-class handles the assertion
         return super().default(obj)
 
@@ -184,7 +126,7 @@ class SIJsonEncoder(json.JSONEncoder):
         else:
             return object.item() if isinstance(object, np.generic) else object
 
-    def remove_numpy_scalars_in_list(self, list_: list | tuple | set) -> list:
+    def remove_numpy_scalars_in_list(self, list_: Union[list, tuple, set]) -> list:
         return [self.remove_numpy_scalars(obj) for obj in list_]
 
     def remove_numpy_scalars_in_dict(self, dictionary: dict) -> dict:
@@ -209,11 +151,6 @@ def check_json(dictionary: dict) -> dict:
 
     json_string = json.dumps(dictionary, indent=4, cls=SIJsonEncoder)
     return json.loads(json_string)
-
-
-def clean_zarr_folder_name(folder: str | Path) -> Path:
-    folder = Path(folder)
-    return folder if folder.suffix == ".zarr" else folder.with_suffix(".zarr")
 
 
 def add_suffix(file_path, possible_suffix):
@@ -257,7 +194,7 @@ def is_dict_extractor(d: dict) -> bool:
 extractor_dict_element = namedtuple(typename="extractor_dict_element", field_names=["value", "name", "access_path"])
 
 
-def extractor_dict_iterator(extractor_dict: dict) -> Generator[extractor_dict_element, None, None]:
+def extractor_dict_iterator(extractor_dict: dict) -> Generator[extractor_dict_element]:
     """
     Iterator for recursive traversal of a dictionary.
     This function explores the dictionary recursively and yields the path to each value along with the value itself.
@@ -313,7 +250,8 @@ def set_value_in_extractor_dict(extractor_dict: dict, access_path: tuple, new_va
 
     Returns
     -------
-    None
+    dict
+        The modified dictionary
     """
 
     current = extractor_dict
@@ -422,7 +360,7 @@ def check_paths_relative(input_dict, relative_folder) -> bool:
     Parameters
     ----------
     input_dict: dict
-        A dict describing an extractor obtained by BaseExtractor.to_dict()
+        A dict describing an extactor obtained by BaseExtractor.to_dict()
     relative_folder: str or Path
         The folder to be relative to.
 
@@ -435,19 +373,11 @@ def check_paths_relative(input_dict, relative_folder) -> bool:
     relative_folder = Path(relative_folder).resolve().absolute()
     not_possible = []
     for p in path_list:
+        p = Path(p)
         # check path is not an URL
         if "http" in str(p):
             not_possible.append(p)
             continue
-
-        # check path is not a remote path, see
-        # https://github.com/SpikeInterface/spikeinterface/issues/4045
-        if is_path_remote(p):
-            not_possible.append(p)
-            continue
-
-        # convert to Path
-        p = Path(p)
 
         # If windows path check have same drive
         if isinstance(p, WindowsPath) and isinstance(relative_folder, WindowsPath):
@@ -474,7 +404,7 @@ def make_paths_relative(input_dict: dict, relative_folder: str | Path) -> dict:
     Parameters
     ----------
     input_dict: dict
-        A dict describing an extractor obtained by BaseExtractor.to_dict()
+        A dict describing an extactor obtained by BaseExtractor.to_dict()
     relative_folder: str or Path
         The folder to be relative to.
 
@@ -502,14 +432,14 @@ def make_paths_relative(input_dict: dict, relative_folder: str | Path) -> dict:
     return output_dict
 
 
-def make_paths_absolute(input_dict, base_folder) -> dict:
+def make_paths_absolute(input_dict, base_folder):
     """
     Recursively transform a dict describing an BaseExtractor to make every path absolute given a base_folder.
 
     Parameters
     ----------
     input_dict: dict
-        A dict describing an extractor obtained by BaseExtractor.to_dict()
+        A dict describing an extactor obtained by BaseExtractor.to_dict()
     base_folder: str or Path
         The folder to be relative to.
 
@@ -525,6 +455,7 @@ def make_paths_absolute(input_dict, base_folder) -> dict:
     path_elements_in_dict = [e for e in extractor_dict_iterator(input_dict) if element_is_path(e)]
     output_dict = deepcopy(input_dict)
 
+    output_dict = deepcopy(input_dict)
     for element in path_elements_in_dict:
         absolute_path = (base_folder / element.value).resolve()
         if Path(absolute_path).exists():
@@ -664,19 +595,11 @@ def convert_string_to_bytes(memory_string: str) -> int:
 def is_editable_mode() -> bool:
     """
     Check if spikeinterface is installed in editable mode
-    pip install -e or UV editable install.
-    Idea modified from here:
-    https://stackoverflow.com/questions/43348746/how-to-detect-if-module-is-installed-in-editable-mode
+    pip install -e .
     """
-    import json
+    import spikeinterface
 
-    spikeinterface_dist = importlib.metadata.Distribution.from_name("spikeinterface").read_text("direct_url.json")
-    # if this is None it is not a local build
-    if spikeinterface_dist is None:
-        return False
-    # if there is not an editable field then it is not editable
-    package_is_editable = json.loads(spikeinterface_dist).get("dir_info").get("editable", False)
-    return package_is_editable
+    return (Path(spikeinterface.__file__).parents[2] / "README.md").exists()
 
 
 def normal_pdf(x, mu: float = 0.0, sigma: float = 1.0):
@@ -702,7 +625,7 @@ def normal_pdf(x, mu: float = 0.0, sigma: float = 1.0):
     return 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-((x - mu) ** 2) / (2 * sigma**2))
 
 
-def retrieve_importing_provenance(a_class) -> dict:
+def retrieve_importing_provenance(a_class):
     """
     Retrieve the import provenance of a class, including its import name (that consists of the class name and the module),
     the top-level module, and the module version.
@@ -748,7 +671,7 @@ def measure_memory_allocation(measure_in_process: bool = True) -> float:
     Parameters
     ----------
     measure_in_process : bool, True by default
-        Measure memory allocation in the current process only, if false then measures at the system
+        Mesure memory allocation in the current process only, if false then measures at the system
         level.
     """
     import psutil
@@ -761,196 +684,3 @@ def measure_memory_allocation(measure_in_process: bool = True) -> float:
         memory = mem_info.total - mem_info.available
 
     return memory
-
-
-def is_path_remote(path: str | Path) -> bool:
-    """
-    Returns True if the path is a remote path (e.g., s3:// or gcs://).
-
-    Parameters
-    ----------
-    path : str or Path
-        The path to check.
-
-    Returns
-    -------
-    is_remote: bool
-        Whether the path is a remote path.
-    """
-    return "s3://" in str(path) or "gcs://" in str(path)
-
-
-def ms_to_samples(ms: float, sampling_frequency: float) -> int:
-    """Convert a duration in milliseconds to the nearest number of samples."""
-    return round(ms * sampling_frequency / 1000.0)
-
-
-def samples_to_ms(samples: int, sampling_frequency: float) -> float:
-    """Convert a duration in samples to milliseconds."""
-    return samples / sampling_frequency * 1000.0
-
-
-def slice_rows(array: np.ndarray | zarr.Array, row_indices: np.ndarray | list, axis: int = 0) -> np.ndarray:
-    """
-    Slice an array to select specific indices/mask along one axis.
-    Note that this function creates a copy of the sliced data, so it is not a view.
-
-    Parameters
-    ----------
-    array : np.ndarray | zarr.Array
-        A numpy or zarr array or boolean mask from which rows will be selected.
-    row_indices : np.ndarray | list
-        A list or array of indices (or a boolean mask) to select along `axis`.
-    axis : int, default: 0
-        The axis along which to select. Use 0 (the default) for spike/unit rows,
-        or a later axis (e.g. the channel axis of a 3D templates/waveforms array).
-
-    Returns
-    -------
-    np.ndarray
-        A new numpy array containing only the selected entries along `axis`.
-    """
-    if isinstance(array, zarr.Array):
-        # For zarr arrays, we need orthogonal indexing to select along a single axis
-        selection = (slice(None),) * axis + (row_indices,)
-        return array.oindex[selection]
-    else:
-        selection = (slice(None),) * axis + (row_indices, ...)
-        return array[selection]
-
-
-def materialize_array(array: np.ndarray | zarr.Array) -> np.ndarray:
-    """
-    Return an independent, writable in-memory numpy array, ready for in-place mutation.
-
-    Extension data is often shared by reference across analyzers (e.g. during merge/split) to
-    avoid unnecessary copies, since sharing is safe as long as nothing mutates the array in
-    place. A few operations (e.g. summing correlogram rows/columns into a merged unit, sparse
-    channel realignment of waveforms/PCA projections) do need to mutate in place, and for those
-    a real copy is required: zarr.Array has no `.copy()` method and is read-only from a
-    previously-saved store, while `copy.deepcopy()` does not actually clone a zarr array's
-    underlying data. Use this right before the in-place mutation, not as a default habit.
-
-    Parameters
-    ----------
-    array : np.ndarray | zarr.Array
-        A numpy or zarr array about to be mutated in place.
-
-    Returns
-    -------
-    np.ndarray
-        A new, independent, writable numpy array with the same data.
-    """
-    if isinstance(array, zarr.Array):
-        return array[:]
-    else:
-        return array.copy()
-
-
-def load_properties_from_folder(folder: str | Path, extractor: "BaseExtractor") -> dict:
-    """
-    Load properties from a folder properties as .npy files and return sets them
-    as properties to the extractor.
-
-    Parameters
-    ----------
-    folder : str or Path
-        The folder containing the properties as .npy files.
-    extractor : BaseExtractor
-        The extractor to which the properties will be set.
-    """
-    folder = Path(folder)
-    if folder.is_dir():
-        for prop_file in folder.iterdir():
-            if prop_file.suffix == ".npy":
-                values = np.load(prop_file, allow_pickle=True)
-                key = prop_file.stem
-                if key == "contact_vector":
-                    continue
-                extractor.set_property(key, values)
-
-
-def save_properties_to_folder(folder: str | Path, extractor: "BaseExtractor"):
-    """
-    Save properties from an extractor to a folder as .npy files.
-
-    Parameters
-    ----------
-    folder : str or Path
-        The folder where the properties will be saved as .npy files.
-    extractor : BaseExtractor
-        The extractor from which the properties will be saved.
-    """
-    folder = Path(folder)
-    folder.mkdir(exist_ok=True)
-    for key in extractor.get_property_keys():
-        values = extractor.get_property(key)
-        np.save(folder / f"{key}.npy", values, allow_pickle=True)
-
-
-def save_annotations_to_folder(folder: str | Path, extractor: "BaseExtractor"):
-    """
-    Save BaseExtractor annotations to annotations.json in the provided folder.
-    This is used for `BinaryFolderRecording` and `NumpyFolderSorting` since version 0.105.0.
-
-    Parameters
-    ----------
-    folder : str or Path
-        The folder where the annotations will be saved as a json file.
-    extractor : BaseExtractor
-        The extractor from which the annotations will be saved.
-    """
-    folder = Path(folder)
-    (folder / "annotations.json").write_text(json.dumps(extractor._annotations, indent=4), encoding="utf8")
-
-
-def load_annotations_from_folder(folder: str | Path, extractor: "BaseExtractor"):
-    """
-    Load annotations from annotations.json in the provided folder.
-    This is used for BinaryFolderRecording and NumpyFolderSorting since version 0.105.0.
-    If the file doesn't exist, it will try to load annotations from the si_folder.json "annotations" field.
-
-    Parameters
-    ----------
-    folder : str or Path
-        The folder where the annotations will be loaded from.
-    extractor : BaseExtractor
-        The extractor to which the annotations will be added.
-    """
-    folder = Path(folder)
-    annotations_file = folder / "annotations.json"
-    if annotations_file.exists():
-        with open(annotations_file, "r") as f:
-            annotations = json.load(f)
-            extractor._annotations.update(annotations)
-    else:
-        # this was before 0.105.0
-        si_folder_json = folder / "si_folder.json"
-        if si_folder_json.is_file():
-            with open(si_folder_json, "r") as f:
-                si_folder_dict = json.load(f)
-            if "annotations" in si_folder_dict:
-                annotations = si_folder_dict["annotations"]
-                extractor._annotations.update(annotations)
-
-
-def save_provenance_to_folder(folder: str | Path, extractor: "BaseExtractor", relative_to: str | Path | None = None):
-    folder = Path(folder)
-    if extractor.check_serializability("json"):
-        provenance_file_path = folder / f"provenance.json"
-        extractor.dump_to_json(file_path=provenance_file_path, relative_to=relative_to)
-    elif extractor.check_serializability("pickle"):
-        provenance_file = folder / f"provenance.pkl"
-        extractor.dump_to_pickle(provenance_file, relative_to=folder)
-    else:
-        warnings.warn("The extractor is not serializable to file. The provenance will not be saved.")
-
-
-def _ensure_seed(seed):
-    # when seed is None:
-    # we want to set one to push it in the Recordind._kwargs to reconstruct the same signal
-    # this is a better approach than having seed=42 or seed=my_dog_birthday because we ensure to have
-    # a new signal for all call with seed=None but the dump/load will still work
-    if seed is None:
-        seed = np.random.default_rng(seed=None).integers(0, 2**63)
-    return int(seed)

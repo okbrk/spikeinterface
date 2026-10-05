@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from pathlib import Path
 from packaging import version
 
-from spikeinterface.sorters.basesorter import BaseSorter
+from ..basesorter import BaseSorter
 
-from spikeinterface.extractors.extractor_classes import HerdingspikesSortingExtractor
+from spikeinterface.extractors import HerdingspikesSortingExtractor
 
 
 class HerdingspikesSorter(BaseSorter):
@@ -93,13 +95,12 @@ class HerdingspikesSorter(BaseSorter):
 
     @classmethod
     def is_installed(cls):
-        import importlib.util
+        try:
+            import herdingspikes as hs
 
-        spec = importlib.util.find_spec("herdingspikes")
-        if spec is None:
-            HAVE_HS = False
-        else:
             HAVE_HS = True
+        except ImportError:
+            HAVE_HS = False
         return HAVE_HS
 
     @classmethod
@@ -158,4 +159,6 @@ class HerdingspikesSorter(BaseSorter):
 
     @classmethod
     def _get_result_from_folder(cls, sorter_output_folder):
-        return HerdingspikesSortingExtractor(file_path=Path(sorter_output_folder) / "HS2_sorted.hdf5")
+        return HerdingspikesSortingExtractor(
+            file_path=Path(sorter_output_folder) / "HS2_sorted.hdf5", load_unit_info=True
+        )

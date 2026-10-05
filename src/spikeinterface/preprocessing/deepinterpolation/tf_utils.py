@@ -1,19 +1,14 @@
+from __future__ import annotations
+
 import os
-import importlib.util
 
 
 def has_tf(use_gpu=True, disable_tf_logger=True, memory_gpu=None):
-    # first check if package even in environment so we don't just go to
-    # the try-except. This should speed things up in the failure case, but
-    # still provide the protection in case of rarer failure modes
-    if importlib.util.find_spec("tensorflow") is None:
+    try:
+        import_tf(use_gpu, disable_tf_logger, memory_gpu)
+        return True
+    except ImportError:
         return False
-    else:
-        try:
-            import_tf(use_gpu, disable_tf_logger, memory_gpu)
-            return True
-        except ImportError:
-            return False
 
 
 def import_tf(use_gpu=True, disable_tf_logger=True, memory_gpu=None):

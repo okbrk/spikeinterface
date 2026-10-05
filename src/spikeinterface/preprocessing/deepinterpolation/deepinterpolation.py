@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import numpy as np
+from typing import Optional
 from packaging.version import parse
-import importlib.metadata
 
 from .tf_utils import has_tf, import_tf
-from spikeinterface.core.core_tools import define_function_handling_dict_from_class
-from spikeinterface.preprocessing.basepreprocessor import BasePreprocessor, BasePreprocessorSegment
+from ...core.core_tools import define_function_from_class
+from ..basepreprocessor import BasePreprocessor, BasePreprocessorSegment
 
 
 class DeepInterpolatedRecording(BasePreprocessor):
@@ -58,10 +60,11 @@ class DeepInterpolatedRecording(BasePreprocessor):
         use_gpu: bool = True,
         predict_workers: int = 1,
         disable_tf_logger: bool = True,
-        memory_gpu: int | None = None,
+        memory_gpu: Optional[int] = None,
     ):
+        import deepinterpolation
 
-        if parse(importlib.metadata.version("deepinterpolation")) < parse("0.2.0"):
+        if parse(deepinterpolation.__version__) < parse("0.2.0"):
             raise ImportError("DeepInterpolation version must be at least 0.2.0")
 
         assert has_tf(
@@ -89,7 +92,7 @@ class DeepInterpolatedRecording(BasePreprocessor):
 
         self.model = model
         # add segment
-        for segment in recording.segments:
+        for segment in recording._recording_segments:
             recording_segment = DeepInterpolatedRecordingSegment(
                 segment,
                 self.model,
@@ -191,6 +194,4 @@ class DeepInterpolatedRecordingSegment(BasePreprocessorSegment):
 
 
 # function for API
-deepinterpolate = define_function_handling_dict_from_class(
-    source_class=DeepInterpolatedRecording, name="deepinterpolate"
-)
+deepinterpolate = define_function_from_class(source_class=DeepInterpolatedRecording, name="deepinterpolate")

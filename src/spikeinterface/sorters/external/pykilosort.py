@@ -1,14 +1,14 @@
+from __future__ import annotations
+
 from pathlib import Path
-import warnings
-import json
-import importlib.util
-from importlib.metadata import version
-
 import numpy as np
+import warnings
 
-from spikeinterface.extractors.extractor_classes import KiloSortSortingExtractor
+from spikeinterface.core import load_extractor
+from spikeinterface.extractors import KiloSortSortingExtractor
 from spikeinterface.core import write_binary_recording
-from spikeinterface.sorters.basesorter import BaseSorter, get_job_kwargs
+import json
+from ..basesorter import BaseSorter, get_job_kwargs
 
 
 class PyKilosortSorter(BaseSorter):
@@ -120,19 +120,20 @@ class PyKilosortSorter(BaseSorter):
 
     @classmethod
     def is_installed(cls):
+        try:
+            import pykilosort
 
-        pyks_spec = importlib.util.find_spec("pykilosort")
-        if pyks_spec is not None:
             HAVE_PYKILOSORT = True
-        else:
+        except ImportError:
             HAVE_PYKILOSORT = False
 
         return HAVE_PYKILOSORT
 
     @classmethod
     def get_sorter_version(cls):
+        import pykilosort
 
-        return version("pykilosort")
+        return pykilosort.__version__
 
     @classmethod
     def _check_params(cls, recording, sorter_output_folder, params):
@@ -140,7 +141,7 @@ class PyKilosortSorter(BaseSorter):
 
     @classmethod
     def _setup_recording(cls, recording, sorter_output_folder, params, verbose):
-        if not recording.binary_compatible_with(time_axis=0, file_paths_length=1):
+        if not recording.binary_compatible_with(time_axis=0, file_paths_lenght=1):
             # local copy needed
             write_binary_recording(
                 recording,

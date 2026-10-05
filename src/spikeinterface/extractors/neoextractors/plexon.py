@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 from spikeinterface.core.core_tools import define_function_from_class
@@ -23,16 +25,11 @@ class PlexonRecordingExtractor(NeoBaseRecordingExtractor):
         Load exhaustively all annotations from neo.
     use_names_as_ids : bool, default: True
         Determines the format of the channel IDs used by the extractor. If set to True, the channel IDs will be the
-        names from NeoRawIO. If set to False, the channel IDs will be the ids provided by NeoRawIO.
+    names from NeoRawIO. If set to False, the channel IDs will be the ids provided by NeoRawIO.
 
         Example for wideband signals:
             names: ["WB01", "WB02", "WB03", "WB04"]
             ids: ["0" , "1", "2", "3"]
-
-    Examples
-    --------
-    >>> from spikeinterface.extractors import read_plexon
-    >>> recording = read_plexon(file_path=r'my_data.plx')
     """
 
     NeoRawIOClass = "PlexonRawIO"
@@ -54,7 +51,7 @@ class PlexonRecordingExtractor(NeoBaseRecordingExtractor):
             use_names_as_ids=use_names_as_ids,
             **neo_kwargs,
         )
-        self._kwargs.update({"file_path": str(Path(file_path).absolute())})
+        self._kwargs.update({"file_path": str(Path(file_path).resolve())})
 
     @classmethod
     def map_to_neo_kwargs(cls, file_path):
@@ -82,7 +79,7 @@ class PlexonSortingExtractor(NeoBaseSortingExtractor):
         self.neo_reader = NeoBaseSortingExtractor.get_neo_io_reader(self.NeoRawIOClass, **neo_kwargs)
         sampling_frequency = self.neo_reader._global_ssampling_rate
         NeoBaseSortingExtractor.__init__(self, sampling_frequency=sampling_frequency, **neo_kwargs)
-        self._kwargs = {"file_path": str(Path(file_path).absolute())}
+        self._kwargs = {"file_path": str(Path(file_path).resolve())}
 
     @classmethod
     def map_to_neo_kwargs(cls, file_path):

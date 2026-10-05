@@ -1,6 +1,10 @@
-import pytest
+import shutil
+from pathlib import Path
 
-# from spikeinterface.extractors import read_yass
+import pytest
+import numpy as np
+
+from spikeinterface.extractors import *
 
 
 @pytest.mark.skip("YASS can be tested after running run_yass()")
@@ -9,7 +13,7 @@ def test_yassextractors():
     pass
 
     #  yass_folder = '/home/samuel/Documents/SpikeInterface/spikeinterface/spikeinterface/sorters/tests/yass_output/'
-    #  sorting = read_yass(yass_folder)
+    #  sorting = YassSortingExtractor(yass_folder)
     #  print(sorting)
 
 

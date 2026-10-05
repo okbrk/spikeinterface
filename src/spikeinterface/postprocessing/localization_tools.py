@@ -1,18 +1,19 @@
-from typing import Literal
+from __future__ import annotations
 
 import warnings
-import importlib.util
 
 import numpy as np
 
-from spikeinterface.core import SortingAnalyzer, Templates, compute_sparsity
-from spikeinterface.core.template_tools import _get_nbefore, get_dense_templates_array
+try:
+    import numba
 
-numba_spec = importlib.util.find_spec("numba")
-if numba_spec is not None:
     HAVE_NUMBA = True
-else:
+except ImportError:
     HAVE_NUMBA = False
+
+
+from spikeinterface.core import compute_sparsity, SortingAnalyzer, Templates
+from spikeinterface.core.template_tools import get_template_extremum_channel, _get_nbefore, get_dense_templates_array
 
 
 def compute_monopolar_triangulation(
@@ -24,8 +25,6 @@ def compute_monopolar_triangulation(
     return_alpha: bool = False,
     enforce_decrease: bool = False,
     feature: str = "ptp",
-    peak_sign=None,
-    peak_mode=None,
 ) -> np.ndarray:
     """
     Localize unit with monopolar triangulation.
@@ -48,9 +47,9 @@ def compute_monopolar_triangulation(
     ----------
     sorting_analyzer_or_templates : SortingAnalyzer | Templates
         A SortingAnalyzer or Templates object
-    unit_ids : str | int | None
+    unit_ids: str | int | None
         A list of unit_id to restrci the computation
-    optimizer : "least_square" | "minimize_with_log_penality", default: "least_square"
+    method : "least_square" | "minimize_with_log_penality", default: "least_square"
        The optimizer to use
     radius_um : float, default: 75
         For channel sparsity
@@ -65,10 +64,6 @@ def compute_monopolar_triangulation(
         monopolar triangulation are peak-to-peak amplitudes ("ptp", default),
         energy ("energy", as L2 norm) or voltages at the center of the waveform
         ("peak_voltage")
-    peak_sign : None | "neg" | "pos" | "both", default: None
-        If sparsity not given, peak_sign used to compute sparsity.
-    amplitude_mode : "extremum" | "at_index" | "peak_to_peak", default: "extremum"
-        If sparsity not given, amplitude_mode used to compute sparsity.
 
     Returns
     -------
@@ -82,19 +77,9 @@ def compute_monopolar_triangulation(
 
     contact_locations = sorting_analyzer_or_templates.get_channel_locations()
 
-    if sorting_analyzer_or_templates.sparsity is None:
-        sparsity = compute_sparsity(
-            sorting_analyzer_or_templates,
-            method="radius",
-            radius_um=radius_um,
-            peak_sign=peak_sign,
-            amplitude_mode=peak_mode,
-        )
-    else:
-        sparsity = sorting_analyzer_or_templates.sparsity
-
+    sparsity = compute_sparsity(sorting_analyzer_or_templates, method="radius", radius_um=radius_um)
     templates = get_dense_templates_array(
-        sorting_analyzer_or_templates, return_in_uV=get_return_in_uV(sorting_analyzer_or_templates)
+        sorting_analyzer_or_templates, return_scaled=get_return_scaled(sorting_analyzer_or_templates)
     )
     nbefore = _get_nbefore(sorting_analyzer_or_templates)
 
@@ -102,8 +87,8 @@ def compute_monopolar_triangulation(
         unit_ids = sorting_analyzer_or_templates.unit_ids
     else:
         unit_ids = np.asanyarray(unit_ids)
-        keep = [np.where(sorting_analyzer_or_templates.unit_ids == unit_id)[0][0] for unit_id in unit_ids]
-        templates = templates[np.array(keep), :, :]
+        keep = np.isin(sorting_analyzer_or_templates.unit_ids, unit_ids)
+        templates = templates[keep, :, :]
 
     if enforce_decrease:
         neighbours_mask = np.zeros((templates.shape[0], templates.shape[2]), dtype=bool)
@@ -111,18 +96,17 @@ def compute_monopolar_triangulation(
             chan_inds = sparsity.unit_id_to_channel_indices[unit_id]
             neighbours_mask[i, chan_inds] = True
         enforce_decrease_radial_parents = make_radial_order_parents(contact_locations, neighbours_mask)
-
-        best_channels = sorting_analyzer_or_templates.get_main_channels(outputs="index", with_dict=True)
+        best_channels = get_template_extremum_channel(sorting_analyzer_or_templates, outputs="index")
 
     unit_location = np.zeros((unit_ids.size, 4), dtype="float64")
     for i, unit_id in enumerate(unit_ids):
         chan_inds = sparsity.unit_id_to_channel_indices[unit_id]
-        local_contact_locations = contact_locations[chan_inds, :2]
+        local_contact_locations = contact_locations[chan_inds, :]
 
         # wf is (nsample, nchan) - chann is only nieghboor
         wf = templates[i, :, :][:, chan_inds]
         if feature == "ptp":
-            wf_data = np.ptp(wf, axis=0)
+            wf_data = wf.ptp(axis=0)
         elif feature == "energy":
             wf_data = np.linalg.norm(wf, axis=0)
         elif feature == "peak_voltage":
@@ -130,7 +114,7 @@ def compute_monopolar_triangulation(
 
         # if enforce_decrease:
         #    enforce_decrease_shells_data(
-        #        wf_data, best_channels[unit_id], enforce_decrease_radial_parents
+        #        wf_data, best_channels[unit_id], enforce_decrease_radial_parents, in_place=True
         #    )
 
         unit_location[i] = solve_monopolar_triangulation(wf_data, local_contact_locations, max_distance_um, optimizer)
@@ -173,34 +157,30 @@ def compute_center_of_mass(
 
     assert feature in ["ptp", "mean", "energy", "peak_voltage"], f"{feature} is not a valid feature"
 
-    if sorting_analyzer_or_templates.sparsity is None:
-        sparsity = compute_sparsity(
-            sorting_analyzer_or_templates, method="radius", radius_um=radius_um, peak_sign=peak_sign
-        )
-    else:
-        sparsity = sorting_analyzer_or_templates.sparsity
-
+    sparsity = compute_sparsity(
+        sorting_analyzer_or_templates, peak_sign=peak_sign, method="radius", radius_um=radius_um
+    )
     templates = get_dense_templates_array(
-        sorting_analyzer_or_templates, return_in_uV=get_return_in_uV(sorting_analyzer_or_templates)
+        sorting_analyzer_or_templates, return_scaled=get_return_scaled(sorting_analyzer_or_templates)
     )
     nbefore = _get_nbefore(sorting_analyzer_or_templates)
 
     if unit_ids is None:
         unit_ids = sorting_analyzer_or_templates.unit_ids
     else:
-        all_unit_ids = list(sorting_analyzer_or_templates.unit_ids)
-        keep_unit_indices = np.array([all_unit_ids.index(unit_id) for unit_id in unit_ids])
-        templates = templates[keep_unit_indices, :, :]
+        unit_ids = np.asanyarray(unit_ids)
+        keep = np.isin(sorting_analyzer_or_templates.unit_ids, unit_ids)
+        templates = templates[keep, :, :]
 
-    unit_location = np.zeros((len(unit_ids), 2), dtype="float64")
+    unit_location = np.zeros((unit_ids.size, 2), dtype="float64")
     for i, unit_id in enumerate(unit_ids):
         chan_inds = sparsity.unit_id_to_channel_indices[unit_id]
-        local_contact_locations = contact_locations[chan_inds, :2]
+        local_contact_locations = contact_locations[chan_inds, :]
 
         wf = templates[i, :, :]
 
         if feature == "ptp":
-            wf_data = np.ptp(wf[:, chan_inds], axis=0)
+            wf_data = (wf[:, chan_inds]).ptp(axis=0)
         elif feature == "mean":
             wf_data = (wf[:, chan_inds]).mean(axis=0)
         elif feature == "energy":
@@ -218,7 +198,7 @@ def compute_center_of_mass(
 def compute_grid_convolution(
     sorting_analyzer_or_templates: SortingAnalyzer | Templates,
     unit_ids=None,
-    invert_prototype_waveform: bool = True,
+    peak_sign: str = "neg",
     radius_um: float = 40.0,
     upsampling_um: float = 5,
     sigma_ms: float = 0.25,
@@ -236,8 +216,8 @@ def compute_grid_convolution(
         A SortingAnalyzer or Templates object
     unit_ids: str | int | None
         A list of unit_id to restrci the computation
-    invert_prototype_waveform: bool, default: True
-        If True, will multiply the prototype waveform by -1
+    peak_sign : "neg" | "pos" | "both", default: "neg"
+        Sign of the template to compute best channels
     radius_um : float, default: 40.0
         Radius to consider for the fake templates
     upsampling_um : float, default: 5
@@ -260,10 +240,10 @@ def compute_grid_convolution(
     unit_location: np.array
     """
 
-    contact_locations = sorting_analyzer_or_templates.get_channel_locations()[:, :2]
+    contact_locations = sorting_analyzer_or_templates.get_channel_locations()
 
     templates = get_dense_templates_array(
-        sorting_analyzer_or_templates, return_in_uV=get_return_in_uV(sorting_analyzer_or_templates)
+        sorting_analyzer_or_templates, return_scaled=get_return_scaled(sorting_analyzer_or_templates)
     )
     nbefore = _get_nbefore(sorting_analyzer_or_templates)
     nafter = templates.shape[1] - nbefore
@@ -271,9 +251,9 @@ def compute_grid_convolution(
     if unit_ids is None:
         unit_ids = sorting_analyzer_or_templates.unit_ids
     else:
-        all_unit_ids = list(sorting_analyzer_or_templates.unit_ids)
-        keep_unit_indices = np.array([all_unit_ids.index(unit_id) for unit_id in unit_ids])
-        templates = templates[keep_unit_indices, :, :]
+        unit_ids = np.asanyarray(unit_ids)
+        keep = np.isin(sorting_analyzer_or_templates.unit_ids, unit_ids)
+        templates = templates[keep, :, :]
 
     fs = sorting_analyzer_or_templates.sampling_frequency
     percentile = 100 - percentile
@@ -282,7 +262,7 @@ def compute_grid_convolution(
     time_axis = np.arange(-nbefore, nafter) * 1000 / fs
     if prototype is None:
         prototype = np.exp(-(time_axis**2) / (2 * (sigma_ms**2)))
-        if invert_prototype_waveform:
+        if peak_sign == "neg":
             prototype *= -1
 
     prototype = prototype[:, np.newaxis]
@@ -291,15 +271,15 @@ def compute_grid_convolution(
         contact_locations, radius_um, upsampling_um, margin_um, weight_method
     )
 
-    main_channels = sorting_analyzer_or_templates.get_main_channels(outputs="index", with_dict=True)
+    peak_channels = get_template_extremum_channel(sorting_analyzer_or_templates, peak_sign, outputs="index")
 
     weights_sparsity_mask = weights > 0
 
     nb_weights = weights.shape[0]
-    unit_location = np.zeros((len(unit_ids), 3), dtype="float64")
+    unit_location = np.zeros((unit_ids.size, 3), dtype="float64")
 
     for i, unit_id in enumerate(unit_ids):
-        main_chan = main_channels[unit_id]
+        main_chan = peak_channels[unit_id]
         wf = templates[i, :, :]
         nearest_mask = nearest_template_mask[main_chan, :]
         channel_mask = np.sum(weights_sparsity_mask[:, :, nearest_mask], axis=(0, 2)) > 0
@@ -336,12 +316,12 @@ def compute_grid_convolution(
     return unit_location
 
 
-def get_return_in_uV(sorting_analyzer_or_templates):
+def get_return_scaled(sorting_analyzer_or_templates):
     if isinstance(sorting_analyzer_or_templates, Templates):
-        return_in_uV = sorting_analyzer_or_templates.is_in_uV
+        return_scaled = sorting_analyzer_or_templates.is_scaled
     else:
-        return_in_uV = sorting_analyzer_or_templates.return_in_uV
-    return return_in_uV
+        return_scaled = sorting_analyzer_or_templates.return_scaled
+    return return_scaled
 
 
 def make_initial_guess_and_bounds(wf_data, local_contact_locations, max_distance_um, initial_z=20):
@@ -368,16 +348,17 @@ def make_initial_guess_and_bounds(wf_data, local_contact_locations, max_distance
 
 
 def solve_monopolar_triangulation(wf_data, local_contact_locations, max_distance_um, optimizer):
-    from scipy.optimize import least_squares, minimize
+    import scipy.optimize
 
     x0, bounds = make_initial_guess_and_bounds(wf_data, local_contact_locations, max_distance_um)
+
     if optimizer == "least_square":
         args = (wf_data, local_contact_locations)
         try:
-            output = least_squares(estimate_distance_error, x0=x0, bounds=bounds, args=args)
+            output = scipy.optimize.least_squares(estimate_distance_error, x0=x0, bounds=bounds, args=args)
             return tuple(output["x"])
         except Exception as e:
-            warnings.warn(f"scipy.optimize.least_squares error: {e}")
+            print(f"scipy.optimize.least_squares error: {e}")
             return (np.nan, np.nan, np.nan, np.nan)
 
     if optimizer == "minimize_with_log_penality":
@@ -386,13 +367,13 @@ def solve_monopolar_triangulation(wf_data, local_contact_locations, max_distance
         max_data = wf_data.max()
         args = (wf_data, local_contact_locations, max_data)
         try:
-            output = minimize(estimate_distance_error_with_log, x0=x0, bounds=bounds, args=args)
+            output = scipy.optimize.minimize(estimate_distance_error_with_log, x0=x0, bounds=bounds, args=args)
             # final alpha
             q = data_at(*output["x"], 1.0, local_contact_locations)
             alpha = (wf_data * q).sum() / np.square(q).sum()
             return (*output["x"], alpha)
         except Exception as e:
-            warnings.warn(f"scipy.optimize.minimize error: {e}")
+            print(f"scipy.optimize.minimize error: {e}")
             return (np.nan, np.nan, np.nan, np.nan)
 
 
@@ -666,48 +647,11 @@ def get_convolution_weights(
 
 
 if HAVE_NUMBA:
-    from numba import jit
-
-    enforce_decrease_shells = jit(enforce_decrease_shells_data, nopython=True)
-
-
-def compute_location_max_channel(
-    templates_or_sorting_analyzer: SortingAnalyzer | Templates,
-    unit_ids=None,
-) -> np.ndarray:
-    """
-    Localize a unit using max channel.
-
-
-    Parameters
-    ----------
-    templates_or_sorting_analyzer : SortingAnalyzer | Templates
-        A SortingAnalyzer or Templates object
-    unit_ids: list[str] | list[int] | None
-        A list of unit_id to restrict the computation
-
-    Returns
-    -------
-    unit_locations: np.ndarray
-        2d
-    """
-    extremum_channels_index = templates_or_sorting_analyzer.get_main_channels(outputs="index", with_dict=True)
-
-    contact_locations = templates_or_sorting_analyzer.get_channel_locations()
-    if unit_ids is None:
-        unit_ids = templates_or_sorting_analyzer.unit_ids
-    else:
-        unit_ids = np.asarray(unit_ids)
-    unit_locations = np.zeros((unit_ids.size, 2), dtype="float32")
-    for i, unit_id in enumerate(unit_ids):
-        unit_locations[i, :] = contact_locations[extremum_channels_index[unit_id], :2]
-
-    return unit_locations
+    enforce_decrease_shells = numba.jit(enforce_decrease_shells_data, nopython=True)
 
 
 _unit_location_methods = {
     "center_of_mass": compute_center_of_mass,
     "grid_convolution": compute_grid_convolution,
     "monopolar_triangulation": compute_monopolar_triangulation,
-    "max_channel": compute_location_max_channel,
 }

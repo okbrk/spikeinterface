@@ -4,16 +4,13 @@ from pathlib import Path
 import zarr
 
 from spikeinterface.core import (
-    generate_recording,
-    generate_sorting,
-    load,
-)
-from spikeinterface.core.zarrextractors import (
     ZarrRecordingExtractor,
     ZarrSortingExtractor,
-    add_sorting_to_zarr_group,
-    get_default_zarr_compressor,
+    generate_recording,
+    generate_sorting,
+    load_extractor,
 )
+from spikeinterface.core.zarrextractors import add_sorting_to_zarr_group, get_default_zarr_compressor
 
 
 def test_zarr_compression_options(tmp_path):
@@ -63,19 +60,19 @@ def test_ZarrSortingExtractor(tmp_path):
     np_sorting = generate_sorting()
 
     # store in root standard normal way
-    folder = tmp_path / "zarr_sorting.zarr"
+    folder = tmp_path / "zarr_sorting"
     ZarrSortingExtractor.write_sorting(np_sorting, folder)
     sorting = ZarrSortingExtractor(folder)
-    sorting = load(sorting.to_dict())
+    sorting = load_extractor(sorting.to_dict())
 
     # store the sorting in a sub group (for instance SortingResult)
-    folder = tmp_path / "zarr_sorting_sub_group.zarr"
+    folder = tmp_path / "zarr_sorting_sub_group"
     zarr_root = zarr.open(folder, mode="w")
     zarr_sorting_group = zarr_root.create_group("sorting")
     add_sorting_to_zarr_group(sorting, zarr_sorting_group)
     sorting = ZarrSortingExtractor(folder, zarr_group="sorting")
     # and reaload
-    sorting = load(sorting.to_dict())
+    sorting = load_extractor(sorting.to_dict())
 
 
 if __name__ == "__main__":

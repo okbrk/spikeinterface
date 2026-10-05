@@ -1,6 +1,10 @@
-import pytest
+import shutil
+from pathlib import Path
 
-# from spikeinterface.extractors import read_combinato
+import pytest
+import numpy as np
+
+from spikeinterface.extractors import *
 
 
 @pytest.mark.skip("Combinato can be tested after running run_combinato()")
@@ -8,7 +12,7 @@ def test_combinatoextractors():
     # not tested here, tested in run_combinato(...)
     pass
     #  combinato_folder = '/home/samuel/Documents/SpikeInterface/spikeinterface/spikeinterface/sorters/tests/combinato_output/recording'
-    #  sorting = read_combinato(combinato_folder)
+    #  sorting = CombinatoSortingExtractor(combinato_folder)
     #  print(sorting)
 
 

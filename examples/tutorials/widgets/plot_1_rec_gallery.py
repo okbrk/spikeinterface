@@ -1,8 +1,8 @@
 """
-BaseRecording Widgets Gallery
-=============================
+RecordingExtractor Widgets Gallery
+===================================
 
-Here is a gallery of all the available widgets using BaseRecording objects.
+Here is a gallery of all the available widgets using RecordingExtractor objects.
 """
 
 import matplotlib.pyplot as plt

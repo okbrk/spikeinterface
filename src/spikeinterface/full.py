@@ -19,10 +19,9 @@ from .extractors import *
 from .sorters import *
 from .preprocessing import *
 from .postprocessing import *
-from .metrics import *
+from .qualitymetrics import *
 from .curation import *
 from .comparison import *
 from .widgets import *
 from .exporters import *
 from .generation import *
-from .benchmark import *

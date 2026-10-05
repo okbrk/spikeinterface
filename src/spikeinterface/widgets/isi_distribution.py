@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import numpy as np
 from warnings import warn
 
-from spikeinterface.core import SortingAnalyzer, BaseSorting
-
 from .base import BaseWidget, to_attr
+from .utils import get_unit_colors
 
 
 class ISIDistributionWidget(BaseWidget):
@@ -12,29 +13,18 @@ class ISIDistributionWidget(BaseWidget):
 
     Parameters
     ----------
-    sorting_analyzer_or_sorting : SortingAnalyzer | BaseSorting | None, default: None
-        The object containing the sorting information for the isi distribution plot
-    unit_ids : list | None, default: None
-        List of unit ids. If None, uses all unit ids.
-    window_ms : float, default: 100.0
-        Window size in ms
-    bins_ms : int, default: 1.0
+    sorting : SortingExtractor
+        The sorting extractor object
+    unit_ids : list
+        List of unit ids
+    bins_ms : int
         Bin size in ms
-    sorting : SortingExtractor | None, default: None
-        A sorting object. Deprecated.
+    window_ms : float
+        Window size in ms
+
     """
 
-    def __init__(
-        self,
-        sorting_analyzer_or_sorting: SortingAnalyzer | BaseSorting | None = None,
-        unit_ids: list | None = None,
-        window_ms: float = 100.0,
-        bin_ms: float = 1.0,
-        backend: str | None = None,
-        **backend_kwargs,
-    ):
-        sorting = self.ensure_sorting(sorting_analyzer_or_sorting)
-
+    def __init__(self, sorting, unit_ids=None, window_ms=100.0, bin_ms=1.0, backend=None, **backend_kwargs):
         if unit_ids is None:
             unit_ids = sorting.get_unit_ids()
 
@@ -76,7 +66,7 @@ class ISIDistributionWidget(BaseWidget):
                     bin_counts = bin_counts_
                 else:
                     bin_counts += bin_counts_
-                    # TODO handle density when several segments
+                    # TODO handle sensity when several segments
 
             ax.bar(x=bin_edges[:-1], height=bin_counts, width=dp.bin_ms, color="gray", align="edge")
 

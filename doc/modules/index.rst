@@ -8,14 +8,12 @@ Modules documentation
     extractors
     preprocessing
     sorters
-    sorters_internal
     postprocessing
-    metrics
+    qualitymetrics
     comparison
     exporters
     widgets
     curation
+    sortingcomponents
     motion_correction
     generation
-    sortingcomponents
-    benchmark

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .neobaseextractor import NeoBaseRecordingExtractor
 
 
@@ -26,7 +28,7 @@ def get_neo_streams(extractor_name, *args, **kwargs):
     return neo_extractor.get_streams(*args, **kwargs)
 
 
-def get_neo_num_blocks(extractor_name, *args, **kwargs) -> int:
+def get_neo_num_blocks(extractor_name, *args, **kwargs):
     """Returns the number of NEO blocks.
     For multi-block datasets, the `block_index` argument can be used to select
     which bloack to read with the `read_**extractor_name**()` function.
@@ -54,10 +56,11 @@ def get_neo_num_blocks(extractor_name, *args, **kwargs) -> int:
 
 
 def get_neo_extractor(extractor_name):
-    from spikeinterface.extractors.neoextractors import neo_recording_class_dict
+    from ..extractorlist import recording_extractor_full_dict
 
-    assert extractor_name in neo_recording_class_dict, (
-        f"{extractor_name} not an extractor name:" f"\n{list(neo_recording_class_dict.keys())}"
+    assert extractor_name in recording_extractor_full_dict, (
+        f"{extractor_name} not an extractor name:" f"\n{list(recording_extractor_full_dict.keys())}"
     )
-    neo_extractor = neo_recording_class_dict[extractor_name]
+    neo_extractor = recording_extractor_full_dict[extractor_name]
+    assert issubclass(neo_extractor, NeoBaseRecordingExtractor), f"{extractor_name} is not a NEO recording extractor!"
     return neo_extractor

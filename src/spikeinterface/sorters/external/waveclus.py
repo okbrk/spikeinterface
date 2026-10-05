@@ -1,28 +1,32 @@
+from __future__ import annotations
+
 from pathlib import Path
 import os
+from typing import Union
 import shutil
 import sys
 import json
-import importlib.util
 
 
-from spikeinterface.sorters.basesorter import BaseSorter
-from spikeinterface.sorters.utils import ShellScript
+from ..basesorter import BaseSorter
+from ..utils import ShellScript
 
 from spikeinterface.core import write_to_h5_dataset_format
-from spikeinterface.extractors.extractor_classes import WaveClusSortingExtractor
+from spikeinterface.extractors import WaveClusSortingExtractor
 from spikeinterface.core.channelslice import ChannelSliceRecording
+from spikeinterface.preprocessing import ScaleRecording
 
-h5py_spec = importlib.util.find_spec("h5py")
-if h5py_spec is not None:
+PathType = Union[str, Path]
+
+try:
     import h5py
 
     HAVE_H5PY = True
-else:
+except ImportError:
     HAVE_H5PY = False
 
 
-def check_if_installed(waveclus_path: str | None):
+def check_if_installed(waveclus_path: Union[str, None]):
     if waveclus_path is None:
         return False
     assert isinstance(waveclus_path, str)
@@ -42,7 +46,7 @@ class WaveClusSorter(BaseSorter):
 
     sorter_name: str = "waveclus"
     compiled_name: str = "waveclus_compiled"
-    waveclus_path: str | None = os.getenv("WAVECLUS_PATH", None)
+    waveclus_path: Union[str, None] = os.getenv("WAVECLUS_PATH", None)
     requires_locations = False
 
     _default_params = {
@@ -131,12 +135,12 @@ class WaveClusSorter(BaseSorter):
         if p is None:
             return "unknown"
         else:
-            with open(str(Path(p) / "version.txt"), encoding="utf8") as f:
+            with open(str(Path(p) / "version.txt"), mode="r", encoding="utf8") as f:
                 version = f.readline()
         return version
 
     @classmethod
-    def set_waveclus_path(cls, waveclus_path: str | Path):
+    def set_waveclus_path(cls, waveclus_path: PathType):
         waveclus_path = str(Path(waveclus_path).absolute())
         WaveClusSorter.waveclus_path = waveclus_path
         try:
@@ -165,7 +169,7 @@ class WaveClusSorter(BaseSorter):
                     time_axis=0,
                     single_axis=True,
                     chunk_memory=params["chunk_memory"],
-                    return_in_uV=rec_sliced.has_scaleable_traces(),
+                    return_scaled=rec_sliced.has_scaleable_traces(),
                 )
 
         if verbose:
@@ -291,7 +295,7 @@ class WaveClusSorter(BaseSorter):
         par_input = {}
         for key, value in p.items():
             if type(value) == bool:
-                value = f"{value}".lower()
+                value = "{}".format(value).lower()
             if key in par_renames:
                 key = par_renames[key]
             par_input[key] = value

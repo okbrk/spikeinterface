@@ -71,14 +71,13 @@ def query_templates_from_database(template_df: "pandas.DataFrame", verbose: bool
     ----------
     template_df : pd.DataFrame
         Dataframe containing the template information, obtained by slicing/querying the output of fetch_templates_info.
-    verbose : bool, default: False
-        if True, output is verbose
 
     Returns
     -------
     Templates
         The templates object.
     """
+    import pandas as pd
 
     templates_array = []
     requested_datasets = np.unique(template_df["dataset"]).tolist()
@@ -94,7 +93,7 @@ def query_templates_from_database(template_df: "pandas.DataFrame", verbose: bool
     for dataset in requested_datasets:
         templates = fetch_template_object_from_database(dataset)
 
-        # check consistency across datasets
+        # check consisency across datasets
         if nbefore is None:
             nbefore = templates.nbefore
         if channel_locations is None:

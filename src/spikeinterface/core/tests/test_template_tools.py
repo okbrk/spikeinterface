@@ -7,8 +7,9 @@ from spikeinterface.core import generate_ground_truth_recording, create_sorting_
 from spikeinterface import Templates
 from spikeinterface.core import (
     get_template_amplitudes,
-    get_template_peak_shift_on_main_channel,
-    get_template_amplitude_on_main_channel,
+    get_template_extremum_channel,
+    get_template_extremum_channel_peak_shift,
+    get_template_extremum_amplitude,
 )
 
 
@@ -47,7 +48,7 @@ def _get_templates_object_from_sorting_analyzer(sorting_analyzer):
         sparsity_mask=None,
         channel_ids=sorting_analyzer.channel_ids,
         unit_ids=sorting_analyzer.unit_ids,
-        is_in_uV=sorting_analyzer.return_in_uV,
+        is_scaled=sorting_analyzer.return_scaled,
     )
     return templates
 
@@ -55,20 +56,28 @@ def _get_templates_object_from_sorting_analyzer(sorting_analyzer):
 def test_get_template_amplitudes(sorting_analyzer):
     peak_values = get_template_amplitudes(sorting_analyzer)
     templates = _get_templates_object_from_sorting_analyzer(sorting_analyzer)
-    peak_values = get_template_amplitudes(templates, peak_sign="both", peak_mode="extremum", abs_value=True)
-    peak_to_peak_values = get_template_amplitudes(templates, peak_sign="both", peak_mode="peak_to_peak")
+    peak_values = get_template_amplitudes(templates, abs_value=True)
+    peak_to_peak_values = get_template_amplitudes(templates, mode="peak_to_peak")
     assert np.all(ptp > p for ptp, p in zip(peak_to_peak_values.values(), peak_values.values()))
 
 
-def test_get_template_peak_shift_on_main_channel(sorting_analyzer):
-    shifts = get_template_peak_shift_on_main_channel(sorting_analyzer)
+def test_get_template_extremum_channel(sorting_analyzer):
+    extremum_channels_ids = get_template_extremum_channel(sorting_analyzer, peak_sign="both")
+    print(extremum_channels_ids)
+    templates = _get_templates_object_from_sorting_analyzer(sorting_analyzer)
+    extremum_channels_ids = get_template_extremum_channel(templates, peak_sign="both")
+    print(extremum_channels_ids)
+
+
+def test_get_template_extremum_channel_peak_shift(sorting_analyzer):
+    shifts = get_template_extremum_channel_peak_shift(sorting_analyzer, peak_sign="neg")
     print(shifts)
     templates = _get_templates_object_from_sorting_analyzer(sorting_analyzer)
-    shifts = get_template_peak_shift_on_main_channel(templates, peak_sign="both")
+    shifts = get_template_extremum_channel_peak_shift(templates, peak_sign="neg")
 
     # DEBUG
     # import matplotlib.pyplot as plt
-    # extremum_channels_ids = we.get_main_channels(peak_sign='both')
+    # extremum_channels_ids = get_template_extremum_channel(we, peak_sign='both')
     # for unit_id in we.unit_ids:
     #     chan_id = extremum_channels_ids[unit_id]
     #     chan_ind = we.recording.id_to_index(chan_id)
@@ -82,14 +91,13 @@ def test_get_template_peak_shift_on_main_channel(sorting_analyzer):
     #     plt.show()
 
 
-def test_get_template_amplitude_on_main_channel(sorting_analyzer):
+def test_get_template_extremum_amplitude(sorting_analyzer):
 
-    extremum_channels_ids = get_template_amplitude_on_main_channel(sorting_analyzer)
+    extremum_channels_ids = get_template_extremum_amplitude(sorting_analyzer, peak_sign="both")
     print(extremum_channels_ids)
 
     templates = _get_templates_object_from_sorting_analyzer(sorting_analyzer)
-
-    extremum_channels_ids = get_template_amplitude_on_main_channel(templates, peak_sign="both", peak_mode="extremum")
+    extremum_channels_ids = get_template_extremum_amplitude(templates, peak_sign="both")
 
 
 if __name__ == "__main__":
@@ -99,5 +107,6 @@ if __name__ == "__main__":
     print(sorting_analyzer)
 
     test_get_template_amplitudes(sorting_analyzer)
-    test_get_template_peak_shift_on_main_channel(sorting_analyzer)
-    test_get_template_amplitude_on_main_channel(sorting_analyzer)
+    test_get_template_extremum_channel(sorting_analyzer)
+    test_get_template_extremum_channel_peak_shift(sorting_analyzer)
+    test_get_template_extremum_amplitude(sorting_analyzer)

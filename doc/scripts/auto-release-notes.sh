@@ -1,6 +1,6 @@
 #!/bin/bash
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 START_DATE (format: YEAR-MM-DD) END_DATE [LABEL] [BRANCH1,BRANCH2] [LIMIT]"
+    echo "Usage: $0 START_DATE END_DATE [LABEL] [BRANCH1,BRANCH2] [LIMIT]"
     exit 1
 fi
 
@@ -8,7 +8,7 @@ START_DATE="$1"
 END_DATE="$2"
 
 if [ -z "$3" ] || [ "$3" = "all" ]; then
-    LABELS=("core" "extractors" "preprocessing" "sorters" "postprocessing" "metrics" "curation" "widgets" "generators" "hybrid" "sortingcomponents" "motion correction" "documentation" "continuous integration" "packaging" "testing" "deprecations" "qualitymetrics")
+    LABELS=("core" "extractors" "preprocessing" "sorters" "postprocessing" "qualitymetrics" "curation" "widgets" "generators" "hybrid" "sortingcomponents" "motion correction" "documentation" "continuous integration" "packaging" "testing")
 else
     LABELS=("$3")
 fi
@@ -26,22 +26,18 @@ else
 fi
 
 for LABEL in "${LABELS[@]}"; do
-    OUTPUT=""
+    echo "$LABEL:"
+    echo ""
     for BRANCH in "${BRANCHES[@]}"; do
-        OUTPUT+=$(gh pr list --repo SpikeInterface/spikeinterface --limit $LIMIT --label "$LABEL" --base "$BRANCH" --state merged --json number,title,mergedAt \
+        gh pr list --repo SpikeInterface/spikeinterface --limit $LIMIT --label "$LABEL" --base "$BRANCH" --state merged --json number,title,mergedAt \
             | jq -r --arg start_date "${START_DATE}T00:00:00Z" --arg end_date "${END_DATE}T00:00:00Z" \
-            '.[] | select(.mergedAt >= $start_date and .mergedAt <= $end_date) | "* \(.title) (#\(.number))"')
+            '.[] | select(.mergedAt >= $start_date and .mergedAt <= $end_date) | "* \(.title) (#\(.number))"'
     done
-    if [ -n "$OUTPUT" ]; then
-        echo "$LABEL:"
-        echo ""
-        echo "$OUTPUT"
-        echo ""
-    fi
+    echo ""
 done
 
 echo "Contributors:"
 echo ""
 gh pr list --repo SpikeInterface/spikeinterface --limit 1000 --base main --state merged --json number,title,author,mergedAt \
   | jq -r --arg start_date "${START_DATE}T00:00:00Z" --arg end_date "${END_DATE}T00:00:00Z" \
-  '[.[] | select(.mergedAt >= $start_date and .mergedAt <= $end_date and .author.login != "app/pre-commit-ci") | .author.login] | unique | .[] | "* @" + .'
+  '[.[] | select(.mergedAt >= $start_date and .mergedAt <= $end_date) | .author.login] | unique | .[] | "* @" + .'

@@ -3,7 +3,7 @@
 SpikeInterface 0.101.0 release notes
 ------------------------------------
 
-19th July 2024
+Estimated: 19th July 2024
 
 Main changes:
 

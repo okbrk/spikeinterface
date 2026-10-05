@@ -1,16 +1,25 @@
+from __future__ import annotations
+
+import copy
 from pathlib import Path
 import sys
 import shutil
-import importlib.util
-from importlib.metadata import version
 
-from spikeinterface.sorters.basesorter import BaseSorter, get_job_kwargs
-from spikeinterface.sorters.utils import ShellScript
+from ..basesorter import BaseSorter, get_job_kwargs
+from ..utils import ShellScript
 
 from probeinterface import write_prb
 
 from spikeinterface.core import write_binary_recording
-from spikeinterface.extractors.extractor_classes import KlustaSortingExtractor
+from spikeinterface.extractors import KlustaSortingExtractor
+
+try:
+    import klusta
+    import klustakwik2
+
+    HAVE_KLUSTA = True
+except ImportError:
+    HAVE_KLUSTA = False
 
 
 class KlustaSorter(BaseSorter):
@@ -60,17 +69,11 @@ class KlustaSorter(BaseSorter):
 
     @classmethod
     def is_installed(cls):
-        klusta_spec = importlib.util.find_spec("klusta")
-        klustakwik2_spec = importlib.util.find_spec("klustakwik2")
-        if klusta_spec is not None and klustakwik2_spec is not None:
-            HAVE_KLUSTA = True
-        else:
-            HAVE_KLUSTA = False
         return HAVE_KLUSTA
 
     @classmethod
     def get_sorter_version(cls):
-        return version("klusta")
+        return klusta.__version__
 
     @classmethod
     def _setup_recording(cls, recording, sorter_output_folder, params, verbose):
@@ -140,12 +143,16 @@ class KlustaSorter(BaseSorter):
         if "win" in sys.platform and sys.platform != "darwin":
             shell_cmd = """
                         klusta --overwrite {klusta_config}
-                    """.format(klusta_config=sorter_output_folder / "config.prm")
+                    """.format(
+                klusta_config=sorter_output_folder / "config.prm"
+            )
         else:
             shell_cmd = """
                         #!/bin/bash
                         klusta {klusta_config} --overwrite
-                    """.format(klusta_config=sorter_output_folder / "config.prm")
+                    """.format(
+                klusta_config=sorter_output_folder / "config.prm"
+            )
 
         shell_script = ShellScript(
             shell_cmd,

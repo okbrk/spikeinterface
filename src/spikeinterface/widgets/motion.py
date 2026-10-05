@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 import numpy as np
 
 from .base import BaseWidget, to_attr
 
 from spikeinterface.core import BaseRecording, SortingAnalyzer
-from .rasters import BaseRasterWidget
-from spikeinterface.core.motion import Motion
+from spikeinterface.sortingcomponents.motion import Motion
 
 
 class MotionWidget(BaseWidget):
@@ -96,7 +97,7 @@ class MotionWidget(BaseWidget):
             ax.set_ylabel("Depth [um]")
 
 
-class DriftRasterMapWidget(BaseRasterWidget):
+class DriftRasterMapWidget(BaseWidget):
     """
     Plot the drift raster map from peaks or a SortingAnalyzer.
     The drift raster map is a scatter plot of the estimated peak depth vs time and it is
@@ -104,10 +105,10 @@ class DriftRasterMapWidget(BaseRasterWidget):
 
     Parameters
     ----------
-    peaks : np.ndarray | None, default: None
+    peaks : np.array | None, default: None
         The peaks array, with dtype ("sample_index", "channel_index", "amplitude", "segment_index"),
         as returned by the `detect_peaks` or `correct_motion` functions.
-    peak_locations : np.ndarray | None, default: None
+    peak_locations : np.array | None, default: None
         The peak locations, with dtype ("x", "y") or ("x", "y", "z"), as returned by the
         `localize_peaks` or `correct_motion` functions.
     sorting_analyzer : SortingAnalyzer | None, default: None
@@ -115,18 +116,18 @@ class DriftRasterMapWidget(BaseRasterWidget):
         "spike_locations" extension computed.
     direction : "x" or "y", default: "y"
         The direction to display. "y" is the depth direction.
+    segment_index : int, default: None
+        The segment index to display.
     recording : RecordingExtractor | None, default: None
         The recording extractor object (only used to get "real" times).
+    segment_index : int, default: 0
+        The segment index to display.
     sampling_frequency : float, default: None
         The sampling frequency (needed if recording is None).
-    segment_indices : list of int or None, default: None
-        The segment index or indices to display. If None and there's only one segment, it's used.
-        If None and there are multiple segments, you must specify which to use.
-        If a list of indices is provided, peaks and locations are concatenated across the segments.
     depth_lim : tuple or None, default: None
         The min and max depth to display, if None (min and max of the recording).
     scatter_decimate : int, default: None
-        If equal to n, each nth spike is kept for plotting.
+        If > 1, the scatter points are decimated.
     color_amplitude : bool, default: True
         If True, the color of the scatter points is the amplitude of the peaks.
     cmap : str, default: "inferno"
@@ -141,13 +142,13 @@ class DriftRasterMapWidget(BaseRasterWidget):
 
     def __init__(
         self,
-        peaks: np.ndarray | None = None,
-        peak_locations: np.ndarray | None = None,
+        peaks: np.array | None = None,
+        peak_locations: np.array | None = None,
         sorting_analyzer: SortingAnalyzer | None = None,
         direction: str = "y",
         recording: BaseRecording | None = None,
         sampling_frequency: float | None = None,
-        segment_indices: list[int] | None = None,
+        segment_index: int | None = None,
         depth_lim: tuple[float, float] | None = None,
         color_amplitude: bool = True,
         scatter_decimate: int | None = None,
@@ -155,15 +156,10 @@ class DriftRasterMapWidget(BaseRasterWidget):
         color: str = "Gray",
         clim: tuple[float, float] | None = None,
         alpha: float = 1,
-        segment_index: int | list[int] | None = None,
         backend: str | None = None,
         **backend_kwargs,
     ):
-        from matplotlib.pyplot import colormaps
-        from matplotlib.colors import Normalize
-
         assert peaks is not None or sorting_analyzer is not None
-
         if peaks is not None:
             assert peak_locations is not None
             if recording is None:
@@ -171,11 +167,9 @@ class DriftRasterMapWidget(BaseRasterWidget):
             else:
                 sampling_frequency = recording.sampling_frequency
             peak_amplitudes = peaks["amplitude"]
-
         if sorting_analyzer is not None:
             if sorting_analyzer.has_recording():
                 recording = sorting_analyzer.recording
-                sampling_frequency = recording.sampling_frequency
             else:
                 recording = None
                 sampling_frequency = sorting_analyzer.sampling_frequency
@@ -194,103 +188,102 @@ class DriftRasterMapWidget(BaseRasterWidget):
             else:
                 peak_amplitudes = None
 
-        unique_segments = np.unique(peaks["segment_index"])
+        if segment_index is None:
+            assert (
+                len(np.unique(peaks["segment_index"])) == 1
+            ), "segment_index must be specified if there are multiple segments"
+            segment_index = 0
+        else:
+            peak_mask = peaks["segment_index"] == segment_index
+            peaks = peaks[peak_mask]
+            peak_locations = peak_locations[peak_mask]
+            if peak_amplitudes is not None:
+                peak_amplitudes = peak_amplitudes[peak_mask]
 
-        if segment_indices is None:
-            if len(unique_segments) == 1:
-                segment_indices = [int(unique_segments[0])]
-            else:
-                raise ValueError("segment_indices must be specified if there are multiple segments")
+        if recording is not None:
+            sampling_frequency = recording.sampling_frequency
+            times = recording.get_times(segment_index=segment_index)
+        else:
+            times = None
 
-        if not isinstance(segment_indices, list):
-            raise ValueError("segment_indices must be a list of ints")
+        plot_data = dict(
+            peaks=peaks,
+            peak_locations=peak_locations,
+            peak_amplitudes=peak_amplitudes,
+            direction=direction,
+            times=times,
+            sampling_frequency=sampling_frequency,
+            segment_index=segment_index,
+            depth_lim=depth_lim,
+            color_amplitude=color_amplitude,
+            color=color,
+            scatter_decimate=scatter_decimate,
+            cmap=cmap,
+            clim=clim,
+            alpha=alpha,
+            recording=recording,
+        )
+        BaseWidget.__init__(self, plot_data, backend=backend, **backend_kwargs)
 
-        # Validate all segment indices exist in the data
-        for idx in segment_indices:
-            if idx not in unique_segments:
-                raise ValueError(f"segment_index {idx} not found in peaks data")
+    def plot_matplotlib(self, data_plot, **backend_kwargs):
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import Normalize
+        from .utils_matplotlib import make_mpl_figure
 
-        # Filter data for the selected segments
-        # Note: For simplicity, we'll filter all data first, then construct dict of dicts
-        segment_mask = np.isin(peaks["segment_index"], segment_indices)
-        filtered_peaks = peaks[segment_mask]
-        filtered_locations = peak_locations[segment_mask]
-        if peak_amplitudes is not None:
-            filtered_amplitudes = peak_amplitudes[segment_mask]
+        from spikeinterface.sortingcomponents.motion import correct_motion_on_peaks
 
-        # Create dict of dicts structure for the base class
-        spike_train_data = {}
-        y_axis_data = {}
+        dp = to_attr(data_plot)
 
-        # Process each segment separately
-        for seg_idx in segment_indices:
-            segment_mask = filtered_peaks["segment_index"] == seg_idx
-            segment_peaks = filtered_peaks[segment_mask]
-            segment_locations = filtered_locations[segment_mask]
+        assert backend_kwargs["axes"] is None, "axes argument is not allowed in DriftRasterMapWidget. Use ax instead."
 
-            # Convert peak times to seconds
-            spike_times = segment_peaks["sample_index"] / sampling_frequency
+        self.figure, self.axes, self.ax = make_mpl_figure(**backend_kwargs)
 
-            # Store in dict of dicts format (using 0 as the "unit" id)
-            spike_train_data[seg_idx] = {0: spike_times}
-            y_axis_data[seg_idx] = {0: segment_locations[direction]}
+        if dp.times is None:
+            peak_times = dp.peaks["sample_index"] / dp.sampling_frequency
+        else:
+            peak_times = dp.times[dp.peaks["sample_index"]]
 
-        if color_amplitude and peak_amplitudes is not None:
-            amps = filtered_amplitudes
+        peak_locs = dp.peak_locations[dp.direction]
+        if dp.scatter_decimate is not None:
+            peak_times = peak_times[:: dp.scatter_decimate]
+            peak_locs = peak_locs[:: dp.scatter_decimate]
+
+        if dp.color_amplitude:
+            amps = dp.peak_amplitudes
             amps_abs = np.abs(amps)
             q_95 = np.quantile(amps_abs, 0.95)
-            cmap_obj = colormaps[cmap]
-            if clim is None:
+            if dp.scatter_decimate is not None:
+                amps = amps[:: dp.scatter_decimate]
+                amps_abs = amps_abs[:: dp.scatter_decimate]
+            cmap = plt.colormaps[dp.cmap]
+            if dp.clim is None:
                 amps = amps_abs
                 amps /= q_95
-                c = cmap_obj(amps)
+                c = cmap(amps)
             else:
-                from matplotlib.colors import Normalize
-
-                norm_function = Normalize(vmin=clim[0], vmax=clim[1], clip=True)
-                c = cmap_obj(norm_function(amps))
+                norm_function = Normalize(vmin=dp.clim[0], vmax=dp.clim[1], clip=True)
+                c = cmap(norm_function(amps))
             color_kwargs = dict(
                 color=None,
                 c=c,
-                alpha=alpha,
+                alpha=dp.alpha,
             )
         else:
-            color_kwargs = dict(color=color, c=None, alpha=alpha)
+            color_kwargs = dict(color=dp.color, c=None, alpha=dp.alpha)
 
-        # Calculate segment durations for x-axis limits
-        if recording is not None:
-            durations = [recording.get_duration(seg_idx) for seg_idx in segment_indices]
-        else:
-            # Find boundaries between segments using searchsorted
-            segment_boundaries = [
-                np.searchsorted(filtered_peaks["segment_index"], [seg_idx, seg_idx + 1]) for seg_idx in segment_indices
-            ]
-
-            # Calculate durations from max sample in each segment
-            durations = [
-                (filtered_peaks["sample_index"][end - 1] + 1) / sampling_frequency for (_, end) in segment_boundaries
-            ]
-
-        plot_data = dict(
-            spike_train_data=spike_train_data,
-            y_axis_data=y_axis_data,
-            segment_indices=segment_indices,
-            y_lim=depth_lim,
-            color_kwargs=color_kwargs,
-            scatter_decimate=scatter_decimate,
-            title="Peak depth",
-            y_label="Depth [um]",
-            durations=durations,
-        )
-
-        BaseRasterWidget.__init__(self, **plot_data, backend=backend, **backend_kwargs)
+        self.ax.scatter(peak_times, peak_locs, s=1, **color_kwargs)
+        if dp.depth_lim is not None:
+            self.ax.set_ylim(*dp.depth_lim)
+        self.ax.set_title("Peak depth")
+        self.ax.set_xlabel("Times [s]")
+        self.ax.set_ylabel("Depth [$\\mu$m]")
 
 
 class MotionInfoWidget(BaseWidget):
     """
-    Plot motion information from the motion_info dictionary returned by the `correct_motion()` function.
+    Plot motion information from the motion_info dictionary returned by the `correct_motion()` funciton.
     This widget plots:
-        * the motion itself
+        * the motion iself
         * the drift raster map (peak depth vs time) before correction
         * the drift raster map (peak depth vs time) after correction
 
@@ -309,7 +302,7 @@ class MotionInfoWidget(BaseWidget):
     motion_lim : tuple or None, default: None
         The min and max motion to display, if None (min and max of the motion).
     scatter_decimate : int, default: None
-        If equal to n, each nth spike is kept for plotting.
+        If > 1, the scatter points are decimated.
     color_amplitude : bool, default: False
         If True, the color of the scatter points is the amplitude of the peaks.
     amplitude_cmap : str, default: "inferno"
@@ -347,12 +340,12 @@ class MotionInfoWidget(BaseWidget):
                 raise ValueError(
                     "plot drift map : the Motion object is multi-segment you must provide segment_index=XX"
                 )
-        assert recording.get_num_segments() == len(
-            motion.displacement
-        ), "The number of segments in the recording must be the same as the number of segments in the motion object"
+
+        times = recording.get_times() if recording is not None else None
 
         plot_data = dict(
             sampling_frequency=motion_info["parameters"]["sampling_frequency"],
+            times=times,
             segment_index=segment_index,
             depth_lim=depth_lim,
             motion_lim=motion_lim,
@@ -413,10 +406,10 @@ class MotionInfoWidget(BaseWidget):
             dp.recording,
         )
 
-        common_drift_map_kwargs = dict(
+        commpon_drift_map_kwargs = dict(
             direction=dp.motion.direction,
             recording=dp.recording,
-            segment_indices=[dp.segment_index],
+            segment_index=dp.segment_index,
             depth_lim=dp.depth_lim,
             scatter_decimate=dp.scatter_decimate,
             color_amplitude=dp.color_amplitude,
@@ -433,7 +426,7 @@ class MotionInfoWidget(BaseWidget):
             dp.peak_locations,
             ax=ax0,
             immediate_plot=True,
-            **common_drift_map_kwargs,
+            **commpon_drift_map_kwargs,
         )
 
         _ = DriftRasterMapWidget(
@@ -441,7 +434,7 @@ class MotionInfoWidget(BaseWidget):
             corrected_location,
             ax=ax1,
             immediate_plot=True,
-            **common_drift_map_kwargs,
+            **commpon_drift_map_kwargs,
         )
 
         ax2.plot(temporal_bins_s, displacement, alpha=0.2, color="black")

@@ -4,7 +4,8 @@
 It is useful when we do extractor.save(name="name").
 """
 
-import os
+from __future__ import annotations
+
 import tempfile
 from pathlib import Path
 from copy import deepcopy
@@ -18,7 +19,7 @@ base = Path(tempfile.gettempdir()) / "spikeinterface_cache"
 temp_folder_set = False
 
 
-def get_global_tmp_folder() -> Path:
+def get_global_tmp_folder():
     """
     Get the global path temporary folder.
     """
@@ -31,7 +32,7 @@ def get_global_tmp_folder() -> Path:
     return temp_folder
 
 
-def set_global_tmp_folder(folder: str | Path):
+def set_global_tmp_folder(folder):
     """
     Set the global path temporary folder.
     """
@@ -70,14 +71,9 @@ dataset_folder_set = False
 def get_global_dataset_folder():
     """
     Get the global dataset folder.
-
-    Unless it has been set manually with `set_global_dataset_folder`, it is read from the
-    `SPIKEINTERFACE_DATASET_FOLDER` environment variable and falls back to `~/spikeinterface_datasets`.
     """
     global dataset_folder
     global dataset_folder_set
-    if not dataset_folder_set:
-        dataset_folder = Path(os.environ.get("SPIKEINTERFACE_DATASET_FOLDER", Path.home() / "spikeinterface_datasets"))
     dataset_folder.mkdir(exist_ok=True, parents=True)
     return dataset_folder
 
@@ -101,12 +97,8 @@ def is_set_global_dataset_folder() -> bool:
 
 
 ########################################
-_default_job_kwargs = dict(
-    pool_engine="process", n_jobs=1, chunk_duration="1s", progress_bar=True, mp_context=None, max_threads_per_worker=1
-)
-
 global global_job_kwargs
-global_job_kwargs = _default_job_kwargs.copy()
+global_job_kwargs = dict(n_jobs=1, chunk_duration="1s", progress_bar=True, mp_context=None, max_threads_per_process=1)
 global global_job_kwargs_set
 global_job_kwargs_set = False
 
@@ -143,7 +135,7 @@ def reset_global_job_kwargs():
     Reset the global job kwargs.
     """
     global global_job_kwargs
-    global_job_kwargs = _default_job_kwargs.copy()
+    global_job_kwargs = dict(n_jobs=1, chunk_duration="1s", progress_bar=True)
 
 
 def is_set_global_job_kwargs_set() -> bool:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import namedtuple
 from collections.abc import Iterable
 
@@ -16,7 +18,7 @@ class CurationSorting:
 
     Parameters
     ----------
-    sorting : BaseSorting
+    sorting: BaseSorting
         The sorting object
     properties_policy : "keep" | "remove", default: "keep"
         Policy used to propagate properties after split and merge operation. If "keep" the properties will be
@@ -24,7 +26,6 @@ class CurationSorting:
         an empty value for all the properties
     make_graph : bool
         True to keep a Networkx graph instance with the curation history
-
     Returns
     -------
     sorting : Sorting
@@ -74,7 +75,7 @@ class CurationSorting:
             Each array can contain more than 2 indices (e.g. for splitting in 3 or more units) and it should
             be the same length as the spike train (for each segment).
             If the sorting has only one segment, indices_list can be a single array
-        new_unit_ids : list[str|int] or None
+        new_unit_ids : list[str|int] ot None
             List of new unit ids. If None, a new unit id is automatically selected
         """
         current_sorting = self._sorting_stages[self._sorting_stages_i]
@@ -161,7 +162,7 @@ class CurationSorting:
 
         Parameters
         ----------
-        unit_id : int or str
+        unit_id : int ot str
             The unit id to remove
         """
         self.remove_units([unit_id])

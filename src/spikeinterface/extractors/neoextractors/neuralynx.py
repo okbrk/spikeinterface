@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import Optional
 from pathlib import Path
 
 from importlib.metadata import version
@@ -32,7 +35,7 @@ class NeuralynxRecordingExtractor(NeoBaseRecordingExtractor):
     strict_gap_mode : bool, default: False
         See neo documentation.
         Detect gaps using strict mode or not.
-        * strict_gap_mode = True then a gap is consider when timestamp difference between
+        * strict_gap_mode = True then a gap is consider when timstamp difference between
         two consecutive data packets is more than one sample interval.
         * strict_gap_mode = False then a gap has an increased tolerance. Some new systems
         with different clocks need this option otherwise, too many gaps are detected
@@ -67,7 +70,7 @@ class NeuralynxRecordingExtractor(NeoBaseRecordingExtractor):
         )
 
     @classmethod
-    def map_to_neo_kwargs(cls, folder_path, exclude_filename=None, strict_gap_mode=False):
+    def map_to_neo_kwargs(cls, folder_path, exclude_filename, strict_gap_mode):
         neo_kwargs = {"dirname": str(folder_path), "exclude_filename": exclude_filename}
         if version("neo") >= "0.13.1":
             neo_kwargs["strict_gap_mode"] = strict_gap_mode
@@ -92,9 +95,6 @@ class NeuralynxSortingExtractor(NeoBaseSortingExtractor):
         Used to extract information about the sampling frequency and t_start from the analog signal if provided.
     stream_name : str, default: None
         Used to extract information about the sampling frequency and t_start from the analog signal if provided.
-    exclude_filename : list[str], default: None
-        List of filename to exclude from the loading.
-        For example, use `exclude_filename=["events.nev"]` to skip loading the event file.
     """
 
     NeoRawIOClass = "NeuralynxRawIO"
@@ -104,12 +104,11 @@ class NeuralynxSortingExtractor(NeoBaseSortingExtractor):
     def __init__(
         self,
         folder_path: str,
-        sampling_frequency: float | None = None,
-        stream_id: str | None = None,
-        stream_name: str | None = None,
-        exclude_filename: list[str] | None = None,
+        sampling_frequency: Optional[float] = None,
+        stream_id: Optional[str] = None,
+        stream_name: Optional[str] = None,
     ):
-        neo_kwargs = self.map_to_neo_kwargs(folder_path, exclude_filename)
+        neo_kwargs = self.map_to_neo_kwargs(folder_path)
         NeoBaseSortingExtractor.__init__(
             self,
             sampling_frequency=sampling_frequency,
@@ -123,12 +122,11 @@ class NeuralynxSortingExtractor(NeoBaseSortingExtractor):
             "sampling_frequency": sampling_frequency,
             "stream_id": stream_id,
             "stream_name": stream_name,
-            "exclude_filename": exclude_filename,
         }
 
     @classmethod
-    def map_to_neo_kwargs(cls, folder_path, exclude_filename=None):
-        neo_kwargs = {"dirname": str(folder_path), "exclude_filename": exclude_filename}
+    def map_to_neo_kwargs(cls, folder_path):
+        neo_kwargs = {"dirname": str(folder_path)}
         return neo_kwargs
 
 
